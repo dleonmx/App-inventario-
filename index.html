@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inventario</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#EDE8DE;
+    --surface:#FFFDF9;
+    --ink:#2B2620;
+    --ink-soft:#6B6355;
+    --accent-plum:#7A3B42;
+    --accent-plum-dark:#5E2C31;
+    --accent-sage:#5C6B4E;
+    --accent-sage-dark:#485539;
+    --line:#D9D2C4;
+    --warn:#B4593B;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Work Sans',sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  #root{min-height:100vh;display:flex;flex-direction:column;}
+  .display{font-family:'Fraunces',serif;}
+  .mono{font-family:'IBM Plex Mono',monospace;letter-spacing:0.03em;}
+  a{color:inherit;}
+  button{font-family:inherit;cursor:pointer;}
+
+  /* ---- top bar ---- */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:18px 24px;
+  }
+  .brand{
+    font-family:'Fraunces',serif;font-size:18px;font-weight:500;
+    display:flex;align-items:center;gap:8px;color:var(--ink);
+    text-decoration:none;
+  }
+  .brand-mark{
+    width:20px;height:20px;border-radius:50%;
+    border:1.5px solid var(--accent-plum);
+    display:inline-block;position:relative;flex-shrink:0;
+  }
+  .brand-mark::after{
+    content:'';position:absolute;inset:4px;border-radius:50%;
+    background:var(--accent-plum);
+  }
+  .gear{
+    width:34px;height:34px;border-radius:50%;border:1px solid var(--line);
+    background:transparent;display:flex;align-items:center;justify-content:center;
+    color:var(--ink-soft);opacity:0.55;transition:opacity .15s;
+  }
+  .gear:hover{opacity:1;}
+  .gear svg{width:16px;height:16px;}
+
+  /* ---- generic layout ---- */
+  .screen{flex:1;display:flex;flex-direction:column;align-items:center;padding:24px;}
+  .stack{width:100%;max-width:420px;margin:auto;}
+  .stack-wide{width:100%;max-width:680px;}
+
+  .eyebrow{
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.12em;
+    text-transform:uppercase;color:var(--accent-plum);margin:0 0 6px;
+  }
+  h1.title{font-family:'Fraunces',serif;font-size:32px;font-weight:500;margin:0 0 8px;line-height:1.15;}
+  p.subtitle{color:var(--ink-soft);font-size:15px;line-height:1.5;margin:0 0 28px;}
+
+  /* ---- buttons ---- */
+  .btn{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    padding:15px 22px;border-radius:10px;border:1px solid transparent;
+    font-size:15px;font-weight:500;width:100%;
+    transition:transform .1s, opacity .15s;
+  }
+  .btn:active{transform:scale(0.98);}
+  .btn-primary{background:var(--accent-plum);color:#fff;}
+  .btn-primary:hover{background:var(--accent-plum-dark);}
+  .btn-sage{background:var(--accent-sage);color:#fff;}
+  .btn-sage:hover{background:var(--accent-sage-dark);}
+  .btn-outline{background:transparent;border-color:var(--line);color:var(--ink);}
+  .btn-outline:hover{border-color:var(--ink-soft);}
+  .btn-ghost{background:transparent;color:var(--ink-soft);font-size:13px;padding:8px;}
+  .btn-ghost:hover{color:var(--ink);}
+  .btn:disabled{opacity:0.4;cursor:not-allowed;}
+
+  .person-list{display:flex;flex-direction:column;gap:10px;margin-bottom:6px;}
+  .person-btn{
+    display:flex;align-items:center;gap:12px;
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;text-align:left;font-size:15px;font-weight:500;
+    color:var(--ink);
+  }
+  .person-btn:hover{border-color:var(--accent-plum);}
+  .avatar{
+    width:32px;height:32px;border-radius:50%;background:var(--bg);
+    border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Fraunces',serif;font-size:13px;color:var(--accent-plum);flex-shrink:0;
+  }
+
+  /* ---- cards (estate tag motif) ---- */
+  .tag-card{
+    background:var(--surface);border-radius:var(--radius);
+    border:1px solid var(--line);
+    box-shadow:0 1px 2px rgba(43,38,32,0.04), 0 8px 24px -12px rgba(43,38,32,0.15);
+    overflow:hidden;position:relative;
+  }
+  .tag-punch{
+    position:absolute;top:14px;left:50%;transform:translateX(-50%);
+    width:14px;height:14px;border-radius:50%;background:var(--bg);
+    border:1px solid var(--line);z-index:3;
+  }
+  .tag-serial{
+    position:absolute;top:14px;right:16px;font-size:10px;color:var(--ink-soft);
+    background:var(--surface);padding:2px 6px;border-radius:4px;border:1px solid var(--line);z-index:3;
+  }
+  .card-photo{
+    width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--bg);display:block;
+  }
+  .card-photo-fallback{
+    width:100%;aspect-ratio:4/3;background:var(--bg);
+    display:flex;align-items:center;justify-content:center;color:var(--ink-soft);
+    font-size:13px;text-align:center;padding:20px;
+  }
+  .card-body{padding:20px 22px 22px;}
+  .card-name{font-family:'Fraunces',serif;font-size:22px;font-weight:500;margin:0 0 6px;}
+  .card-desc{font-size:14px;color:var(--ink-soft);line-height:1.5;margin:0;}
+
+  /* ---- review screen ---- */
+  .progress-row{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .progress-count{font-size:13px;color:var(--ink-soft);}
+  .progress-bar{
+    flex:1;height:3px;background:var(--line);border-radius:2px;margin-left:14px;overflow:hidden;
+  }
+  .progress-fill{height:100%;background:var(--accent-plum);transition:width .25s ease;}
+  .decision-row{display:flex;gap:10px;margin-top:16px;}
+  .decision-row .btn{flex:1;}
+
+  /* ---- summary / results ---- */
+  .summary-item{
+    display:flex;gap:12px;align-items:center;
+    padding:12px 0;border-bottom:1px solid var(--line);
+  }
+  .summary-item:last-child{border-bottom:none;}
+  .summary-thumb{width:44px;height:44px;border-radius:6px;object-fit:cover;background:var(--bg);flex-shrink:0;}
+  .summary-name{font-size:14px;font-weight:500;}
+  .summary-name .desc{font-weight:400;color:var(--ink-soft);}
+
+  .result-row{padding:14px 0;border-bottom:1px solid var(--line);}
+  .result-row:last-child{border-bottom:none;}
+  .result-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+  .result-name{font-family:'Fraunces',serif;font-size:17px;font-weight:500;}
+  .claim-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .pill{
+    font-size:12px;padding:3px 10px;border-radius:20px;background:var(--bg);
+    color:var(--ink-soft);border:1px solid var(--line);
+  }
+  .pill.conflict{background:#F3E2DA;color:var(--warn);border-color:#E3B7A3;}
+  .conflict-note{font-size:12px;color:var(--warn);margin-top:6px;font-weight:500;}
+  .none-pill{font-size:12px;color:var(--ink-soft);font-style:italic;}
+
+  /* ---- admin form ---- */
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-size:12px;font-weight:500;color:var(--ink-soft);margin-bottom:6px;
+    text-transform:uppercase;letter-spacing:0.05em;font-family:'IBM Plex Mono',monospace;}
+  .field input, .field textarea{
+    width:100%;padding:12px 14px;border-radius:8px;border:1px solid var(--line);
+    background:var(--surface);font-family:'Work Sans',sans-serif;font-size:14px;color:var(--ink);
+  }
+  .field input:focus, .field textarea:focus{outline:none;border-color:var(--accent-plum);}
+  .field textarea{resize:vertical;min-height:56px;}
+  .field input[type="file"]{padding:10px;font-size:13px;color:var(--ink-soft);}
+  .help{font-size:12px;color:var(--ink-soft);margin-top:6px;line-height:1.4;}
+  .photo-preview{margin-top:10px;width:100%;max-width:220px;aspect-ratio:4/3;object-fit:cover;
+    border-radius:8px;border:1px solid var(--line);display:block;}
+  .photo-preview-loading{font-size:12px;color:var(--ink-soft);margin-top:8px;}
+  .panel{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px;margin-bottom:20px;
+  }
+  .panel h2{font-family:'Fraunces',serif;font-size:17px;font-weight:500;margin:0 0 16px;}
+  .item-row{
+    display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);
+  }
+  .item-row:last-child{border-bottom:none;}
+  .item-thumb{width:48px;height:48px;border-radius:6px;object-fit:cover;background:var(--bg);flex-shrink:0;}
+  .item-info{flex:1;min-width:0;}
+  .item-info .n{font-size:14px;font-weight:500;}
+  .item-info .d{font-size:12px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .icon-btn{
+    width:30px;height:30px;border-radius:6px;border:1px solid var(--line);background:transparent;
+    display:flex;align-items:center;justify-content:center;color:var(--ink-soft);flex-shrink:0;
+  }
+  .icon-btn:hover{border-color:var(--warn);color:var(--warn);}
+  .empty-note{color:var(--ink-soft);font-size:14px;text-align:center;padding:20px 0;}
+
+  .name-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  @media (max-width:420px){.name-grid{grid-template-columns:1fr;}}
+
+  .loading{display:flex;align-items:center;justify-content:center;flex:1;color:var(--ink-soft);font-size:14px;}
+  .spinner{
+    width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent-plum);
+    border-radius:50%;animation:spin .7s linear infinite;margin-right:10px;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .toast{
+    position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;
+    opacity:0;transition:opacity .25s;pointer-events:none;z-index:50;
+  }
+  .toast.show{opacity:1;}
+
+  .link-btn{background:none;border:none;color:var(--accent-plum);font-size:13px;font-weight:500;padding:4px 0;}
+  .link-btn:hover{text-decoration:underline;}
+  .back-row{display:flex;align-items:center;gap:8px;margin-bottom:18px;}
+  .back-btn{
+    width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:var(--surface);
+    display:flex;align-items:center;justify-content:center;color:var(--ink-soft);flex-shrink:0;
+  }
+  .back-btn svg{width:15px;height:15px;}
+  .section-title{font-size:13px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;
+    letter-spacing:0.06em;font-family:'IBM Plex Mono',monospace;margin:26px 0 12px;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+
+  var toastTimer = null;
+  function showToast(msg){
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 2200);
+  }
+
+  // ---------- Supabase connection ----------
+  // Pega aquí la Project URL y la anon public key de tu proyecto en Supabase
+  // (Settings -> API). Estas dos son seguras de tener visibles en el navegador.
+  var SUPABASE_URL = 'https://rbpkbgjvxposscfeemaf.supabase.co';
+  var SUPABASE_ANON_KEY = 'sb_publishable_CRxH89US0eCnWRcMjfdreA_8xL1Qbex';
+  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // ---------- storage helpers ----------
+  async function storeGet(key, fallback){
+    try{
+      var res = await sb.from('inventario_kv').select('value').eq('key', key).maybeSingle();
+      if(res.error) throw res.error;
+      return res.data ? JSON.parse(res.data.value) : fallback;
+    }catch(e){
+      return fallback;
+    }
+  }
+  async function storeSet(key, value){
+    try{
+      var res = await sb.from('inventario_kv').upsert({ key: key, value: JSON.stringify(value) });
+      if(res.error) throw res.error;
+      return true;
+    }catch(e){
+      showToast('No se pudo guardar. Intenta de nuevo.');
+      return false;
+    }
+  }
+  async function storeDelete(key){
+    try{
+      var res = await sb.from('inventario_kv').delete().eq('key', key);
+      if(res.error) throw res.error;
+      return true;
+    }catch(e){
+      return false;
+    }
+  }
+
+  var KEY_CONFIG = 'inventario:config';
+  var KEY_ITEMS = 'inventario:items';
+  var KEY_SELECTIONS = 'inventario:selecciones';
+
+  // ---------- app state ----------
+  var state = {
+    route: 'home',
+    person: null,
+    config: null,
+    items: null,
+    selections: null,
+    reviewIndex: 0
+  };
+
+  function uid(){ return Math.random().toString(36).slice(2,9); }
+  function initials(name){
+    return name.trim().split(/\s+/).slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase();
+  }
+  function esc(s){
+    var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML;
+  }
+
+  var pendingPhotoDataUrl = null; // holds the compressed photo for the item currently being added
+
+  function photoKey(id){ return 'inventario:photo:' + id; }
+
+  // Reads a File chosen from disk, downsizes it on a canvas, and resolves a JPEG data URL
+  // small enough to store as text (keeps every photo comfortably under the storage size cap).
+  function fileToCompressedDataUrl(file, maxDim, quality){
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onerror = function(){ reject(new Error('No se pudo leer el archivo')); };
+      reader.onload = function(){
+        var img = new Image();
+        img.onerror = function(){ reject(new Error('No se pudo leer la imagen')); };
+        img.onload = function(){
+          var w = img.width, h = img.height;
+          var scale = Math.min(1, maxDim / Math.max(w, h));
+          var cw = Math.round(w * scale), ch = Math.round(h * scale);
+          var canvas = document.createElement('canvas');
+          canvas.width = cw; canvas.height = ch;
+          canvas.getContext('2d').drawImage(img, 0, 0, cw, ch);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function loadAll(){
+    var config = await storeGet(KEY_CONFIG, null);
+    var items = await storeGet(KEY_ITEMS, []);
+    var photos = await Promise.all(items.map(function(it){ return storeGet(photoKey(it.id), null); }));
+    items.forEach(function(it, i){ it.photoUrl = photos[i] || ''; });
+    var selections = await storeGet(KEY_SELECTIONS, {});
+    state.config = config;
+    state.items = items;
+    state.selections = selections;
+  }
+
+  var navHistory = [];
+
+  function navigate(route, extra, opts){
+    opts = opts || {};
+    if(!opts.isBack && state.route && state.route !== 'loading'){
+      navHistory.push({ route: state.route, person: state.person, reviewIndex: state.reviewIndex });
+    }
+    state.route = route;
+    if(extra) Object.assign(state, extra);
+    render();
+    window.scrollTo(0,0);
+  }
+
+  window.__back = function(){
+    var prev = navHistory.pop();
+    if(!prev){ navigate('home'); return; }
+    navigate(prev.route, { person: prev.person, reviewIndex: prev.reviewIndex }, { isBack: true });
+  };
+
+  // ---------- render root ----------
+  var root = document.getElementById('root');
+
+  function topbar(){
+    var showBack = state.route !== 'home' && state.route !== 'loading';
+    var showGear = state.route === 'home';
+    return '' +
+      '<div class="topbar">' +
+        '<div style="display:flex;align-items:center;gap:10px;">' +
+          (showBack ? '<button class="back-btn" title="Regresar" onclick="window.__back()">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>' +
+          '</button>' : '') +
+          '<a class="brand" href="#" onclick="window.__nav(\'home\');return false;">' +
+            '<span class="brand-mark"></span>' +
+            (state.config && state.config.title ? esc(state.config.title) : 'Inventario') +
+          '</a>' +
+        '</div>' +
+        (showGear ? '<button class="gear" title="Organizar" onclick="window.__nav(\'admin\')">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009.1 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9.1a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>' +
+        '</button>' : '<span style="width:34px;"></span>') +
+      '</div>';
+  }
+
+  function render(){
+    if(!state.config && state.route !== 'admin' && state.route !== 'loading'){
+      // config not ready — still show home with prompt, home() handles it
+    }
+    var html = '';
+    if(state.route === 'loading'){
+      html = topbar() + '<div class="loading"><div class="spinner"></div>Cargando…</div>';
+    } else if(state.route === 'home'){
+      html = topbar() + homeScreen();
+    } else if(state.route === 'admin'){
+      html = topbar() + adminScreen();
+    } else if(state.route === 'review'){
+      html = topbar() + reviewScreen();
+    } else if(state.route === 'summary'){
+      html = topbar() + summaryScreen();
+    } else if(state.route === 'results'){
+      html = topbar() + resultsScreen();
+    }
+    root.innerHTML = html;
+    afterRender();
+  }
+
+  // ---------- HOME ----------
+  function homeScreen(){
+    var cfg = state.config;
+    if(!cfg || !cfg.familyNames || cfg.familyNames.length === 0){
+      return '<div class="screen"><div class="stack">' +
+        '<p class="eyebrow">Antes de empezar</p>' +
+        '<h1 class="title">Este inventario aún no está listo</h1>' +
+        '<p class="subtitle">Quien está organizando el inventario todavía no ha agregado los nombres de la familia ni los objetos. Toca el ícono de arriba a la derecha para configurarlo.</p>' +
+        '<button class="btn btn-primary" onclick="window.__nav(\'admin\')">Ir a organizar el inventario</button>' +
+      '</div></div>';
+    }
+    var buttons = cfg.familyNames.map(function(n){
+      return '<button class="person-btn" onclick="window.__selectPerson(\'' + esc(n).replace(/'/g,"\\'") + '\')">' +
+        '<span class="avatar">' + esc(initials(n)) + '</span>' + esc(n) +
+      '</button>';
+    }).join('');
+    return '<div class="screen"><div class="stack">' +
+      '<p class="eyebrow">' + (state.items && state.items.length ? state.items.length + ' objetos por revisar' : 'Inventario') + '</p>' +
+      '<h1 class="title">' + esc(cfg.title || 'Inventario del hogar') + '</h1>' +
+      '<p class="subtitle">' + (cfg.subtitle ? esc(cfg.subtitle) : 'Elige tu nombre para empezar a revisar los objetos y marcar los que te gustaría conservar.') + '</p>' +
+      '<div class="person-list">' + buttons + '</div>' +
+      '<div style="text-align:center;margin-top:8px;">' +
+        '<button class="link-btn" onclick="window.__nav(\'results\')">Ver resultados generales</button>' +
+      '</div>' +
+    '</div></div>';
+  }
+
+  window.__selectPerson = function(name){
+    if(!state.items || state.items.length === 0){
+      showToast('Todavía no hay objetos cargados.');
+      return;
+    }
+    var done = (state.selections[name] || {}).reviewed || [];
+    var firstPending = state.items.length;
+    for(var i=0;i<state.items.length;i++){
+      if(done.indexOf(state.items[i].id) === -1){ firstPending = i; break; }
+    }
+    if(firstPending >= state.items.length){
+      navigate('summary', { person: name });
+    } else {
+      navigate('review', { person: name, reviewIndex: firstPending });
+    }
+  };
+
+  // ---------- ADMIN ----------
+  function adminScreen(){
+    var cfg = state.config || { title:'', subtitle:'', familyNames:[] };
+    var names = cfg.familyNames && cfg.familyNames.length ? cfg.familyNames : ['','','','',''];
+    while(names.length < 5) names.push('');
+
+    var itemsHtml = (!state.items || state.items.length === 0)
+      ? '<p class="empty-note">Todavía no has agregado ningún objeto.</p>'
+      : state.items.map(function(it){
+          var thumb = it.photoUrl
+            ? '<img class="item-thumb" src="' + esc(it.photoUrl) + '" onerror="this.style.display=\'none\'">'
+            : '<div class="item-thumb"></div>';
+          return '<div class="item-row">' + thumb +
+            '<div class="item-info"><div class="n">' + esc(it.name) + '</div><div class="d">' + esc(it.desc || '') + '</div></div>' +
+            '<button class="icon-btn" title="Eliminar" onclick="window.__deleteItem(\'' + it.id + '\')">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m2 0v14a1 1 0 01-1 1H7a1 1 0 01-1-1V6h12z"/></svg>' +
+            '</button>' +
+          '</div>';
+        }).join('');
+
+    return '<div class="screen"><div class="stack-wide">' +
+      '<div class="back-row">' +
+        '<p class="eyebrow" style="margin:0;">Organizar</p>' +
+      '</div>' +
+      '<h1 class="title">Configura el inventario</h1>' +
+
+      '<div class="panel">' +
+        '<h2>Datos generales</h2>' +
+        '<div class="field"><label>Título del inventario</label>' +
+          '<input id="f-title" placeholder="Ej. Inventario de la casa de mamá" value="' + esc(cfg.title || '') + '"></div>' +
+        '<div class="field"><label>Mensaje para la familia (opcional)</label>' +
+          '<textarea id="f-subtitle" placeholder="Ej. Marca lo que te gustaría conservar, sin prisa.">' + esc(cfg.subtitle || '') + '</textarea></div>' +
+        '<div class="field"><label>Nombres de la familia (hasta 5)</label>' +
+          '<div class="name-grid">' +
+            names.map(function(n,i){ return '<input class="fam-name" data-idx="'+i+'" placeholder="Nombre ' + (i+1) + '" value="' + esc(n) + '">'; }).join('') +
+          '</div>' +
+        '</div>' +
+        '<button class="btn btn-primary" onclick="window.__saveConfig()">Guardar datos generales</button>' +
+      '</div>' +
+
+      '<div class="panel">' +
+        '<h2>Agregar un objeto</h2>' +
+        '<div class="field"><label>Nombre del objeto</label><input id="f-item-name" placeholder="Ej. Reloj de pared de madera"></div>' +
+        '<div class="field"><label>Descripción</label><textarea id="f-item-desc" placeholder="Ej. Estaba en la sala, marca Junghans, funciona bien"></textarea></div>' +
+        '<div class="field"><label>Foto</label>' +
+          '<input id="f-item-photo" type="file" accept="image/*" capture="environment" onchange="window.__onPhotoSelected(this)">' +
+          '<div id="f-item-photo-preview"></div>' +
+          '<p class="help">En el celular, esto abre la cámara directo — también puedes elegir una foto ya guardada.</p>' +
+        '</div>' +
+        '<button class="btn btn-sage" onclick="window.__addItem()">Agregar objeto</button>' +
+      '</div>' +
+
+      '<p class="section-title">Objetos agregados (' + (state.items ? state.items.length : 0) + ')</p>' +
+      '<div class="panel">' + itemsHtml + '</div>' +
+
+      '<button class="btn btn-outline" onclick="window.__nav(\'results\')">Ver resultados</button>' +
+    '</div></div>';
+  }
+
+  window.__saveConfig = async function(){
+    var title = document.getElementById('f-title').value.trim();
+    var subtitle = document.getElementById('f-subtitle').value.trim();
+    var nameInputs = document.querySelectorAll('.fam-name');
+    var familyNames = [];
+    nameInputs.forEach(function(inp){ var v = inp.value.trim(); if(v) familyNames.push(v); });
+    if(familyNames.length === 0){
+      showToast('Agrega al menos un nombre.');
+      return;
+    }
+    var cfg = { title: title || 'Inventario del hogar', subtitle: subtitle, familyNames: familyNames };
+    var ok = await storeSet(KEY_CONFIG, cfg);
+    if(ok){ state.config = cfg; showToast('Datos guardados.'); render(); }
+  };
+
+  window.__onPhotoSelected = async function(input){
+    var file = input.files && input.files[0];
+    var preview = document.getElementById('f-item-photo-preview');
+    if(!file){ pendingPhotoDataUrl = null; preview.innerHTML = ''; return; }
+    preview.innerHTML = '<div class="photo-preview-loading">Preparando la foto…</div>';
+    try{
+      var dataUrl = await fileToCompressedDataUrl(file, 1000, 0.72);
+      pendingPhotoDataUrl = dataUrl;
+      preview.innerHTML = '<img class="photo-preview" src="' + dataUrl + '">';
+    }catch(e){
+      pendingPhotoDataUrl = null;
+      preview.innerHTML = '<div class="photo-preview-loading">No se pudo leer esa foto, intenta con otra.</div>';
+    }
+  };
+
+  window.__addItem = async function(){
+    var name = document.getElementById('f-item-name').value.trim();
+    var desc = document.getElementById('f-item-desc').value.trim();
+    if(!name){ showToast('Ponle un nombre al objeto.'); return; }
+    var id = uid();
+    var itemForStorage = { id: id, name: name, desc: desc };
+    var itemsForStorage = (state.items || []).map(function(it){ return { id: it.id, name: it.name, desc: it.desc }; }).concat([itemForStorage]);
+    var ok = await storeSet(KEY_ITEMS, itemsForStorage);
+    if(!ok) return;
+    var photoToSave = pendingPhotoDataUrl;
+    if(photoToSave){
+      var photoOk = await storeSet(photoKey(id), photoToSave);
+      if(!photoOk) showToast('El objeto se guardó, pero la foto no. Intenta agregarla de nuevo.');
+    }
+    var item = { id: id, name: name, desc: desc, photoUrl: photoToSave || '' };
+    state.items = (state.items || []).concat([item]);
+    pendingPhotoDataUrl = null;
+    showToast('Objeto agregado.');
+    render();
+  };
+
+  window.__deleteItem = async function(id){
+    var items = (state.items || []).filter(function(it){ return it.id !== id; });
+    var itemsForStorage = items.map(function(it){ return { id: it.id, name: it.name, desc: it.desc }; });
+    var ok = await storeSet(KEY_ITEMS, itemsForStorage);
+    if(ok){
+      state.items = items;
+      render();
+      try{ await storeDelete(photoKey(id)); }catch(e){}
+    }
+  };
+
+  // ---------- REVIEW (per person) ----------
+  function reviewScreen(){
+    var items = state.items || [];
+    var idx = state.reviewIndex;
+    if(idx >= items.length){
+      return '<div class="screen"><div class="loading"><div class="spinner"></div>Cargando…</div></div>';
+    }
+    var it = items[idx];
+    var total = items.length;
+    var pct = Math.round((idx/total)*100);
+
+    var photo = it.photoUrl
+      ? '<img class="card-photo" src="' + esc(it.photoUrl) + '" onerror="this.outerHTML=\'<div class=&quot;card-photo-fallback&quot;>No se pudo cargar la foto de este objeto</div>\'">'
+      : '<div class="card-photo-fallback">Sin foto</div>';
+
+    return '<div class="screen"><div class="stack">' +
+      '<div class="progress-row">' +
+        '<span class="progress-count mono">' + (idx+1) + ' / ' + total + '</span>' +
+        '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
+      '</div>' +
+      '<div class="tag-card">' +
+        '<div class="tag-punch"></div>' +
+        '<div class="tag-serial mono">PIEZA ' + String(idx+1).padStart(3,'0') + '</div>' +
+        photo +
+        '<div class="card-body">' +
+          '<h2 class="card-name">' + esc(it.name) + '</h2>' +
+          (it.desc ? '<p class="card-desc">' + esc(it.desc) + '</p>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div class="decision-row">' +
+        '<button class="btn btn-outline" onclick="window.__decide(false)">Lo dejo pasar</button>' +
+        '<button class="btn btn-sage" onclick="window.__decide(true)">Lo quiero</button>' +
+      '</div>' +
+      '<div style="text-align:center;margin-top:14px;">' +
+        '<button class="link-btn" onclick="window.__nav(\'home\')">Guardar y salir</button>' +
+      '</div>' +
+    '</div></div>';
+  }
+
+  window.__decide = async function(wants){
+    var items = state.items || [];
+    var it = items[state.reviewIndex];
+    var person = state.person;
+    var sel = JSON.parse(JSON.stringify(state.selections || {}));
+    if(!sel[person]) sel[person] = { wanted: [], reviewed: [] };
+    if(wants && sel[person].wanted.indexOf(it.id) === -1) sel[person].wanted.push(it.id);
+    if(!wants) sel[person].wanted = sel[person].wanted.filter(function(id){ return id !== it.id; });
+    if(sel[person].reviewed.indexOf(it.id) === -1) sel[person].reviewed.push(it.id);
+
+    state.selections = sel;
+    var nextIndex = state.reviewIndex + 1;
+
+    // optimistic UI: advance immediately, save in background
+    if(nextIndex >= items.length){
+      navigate('summary', { reviewIndex: nextIndex });
+    } else {
+      state.reviewIndex = nextIndex;
+      render();
+    }
+
+    var ok = await storeSet(KEY_SELECTIONS, sel);
+    if(!ok){ showToast('No se guardó tu última elección, revisa tu conexión.'); }
+  };
+
+  // ---------- SUMMARY (after finishing review) ----------
+  function summaryScreen(){
+    var person = state.person;
+    var sel = (state.selections[person] || { wanted: [] });
+    var items = state.items || [];
+    var chosen = items.filter(function(it){ return sel.wanted.indexOf(it.id) !== -1; });
+    var notChosen = items.filter(function(it){ return sel.wanted.indexOf(it.id) === -1; });
+
+    var conflictItems = chosen.filter(function(it){
+      var claimers = Object.keys(state.selections).filter(function(p){ return (state.selections[p].wanted||[]).indexOf(it.id) !== -1; });
+      return claimers.length > 1;
+    });
+
+    function renderList(list, emptyMsg){
+      if(list.length === 0) return '<p class="empty-note">' + emptyMsg + '</p>';
+      return list.map(function(it){
+        var thumb = it.photoUrl ? '<img class="summary-thumb" src="' + esc(it.photoUrl) + '" onerror="this.style.visibility=\'hidden\'">' : '<div class="summary-thumb"></div>';
+        return '<div class="summary-item">' + thumb + '<div class="summary-name">' + esc(it.name) + (it.desc ? ' <span class="desc">— ' + esc(it.desc) + '</span>' : '') + '</div></div>';
+      }).join('');
+    }
+
+    return '<div class="screen"><div class="stack">' +
+      '<p class="eyebrow">Gracias, ' + esc(person) + '</p>' +
+      '<h1 class="title">Terminaste de revisar</h1>' +
+      '<p class="subtitle">Gracias por tomarte el tiempo de repasar todo el inventario. Aquí está tu resumen.</p>' +
+
+      '<p class="section-title">Lo que elegiste conservar (' + chosen.length + ')</p>' +
+      '<div class="panel">' + renderList(chosen, 'No marcaste ningún objeto esta vez.') + '</div>' +
+
+      '<p class="section-title">Lo que dejaste pasar (' + notChosen.length + ')</p>' +
+      '<div class="panel">' + renderList(notChosen, 'Marcaste todos los objetos.') + '</div>' +
+
+      (conflictItems.length > 0
+        ? '<div class="panel" style="border-color:#E3B7A3;background:#FBF3EF;">' +
+            '<p style="margin:0 0 12px;font-size:14px;font-weight:500;color:var(--warn);">' +
+              'Hay ' + conflictItems.length + ' objeto' + (conflictItems.length > 1 ? 's que también quieren' : ' que también quiere') + ' alguien más.' +
+            '</p>' +
+            '<button class="btn btn-outline" style="border-color:var(--warn);color:var(--warn);" onclick="window.__nav(\'results\')">Ver quién más lo quiere</button>' +
+          '</div>'
+        : '') +
+
+      '<button class="btn btn-outline" onclick="window.__nav(\'review\', {reviewIndex:0})">Repasar de nuevo</button>' +
+      '<div style="height:10px;"></div>' +
+      '<button class="btn btn-primary" onclick="window.__nav(\'home\')">Volver al inicio</button>' +
+    '</div></div>';
+  }
+
+  // ---------- RESULTS (everyone / admin) ----------
+  function resultsScreen(){
+    var items = state.items || [];
+    var sel = state.selections || {};
+    var rows = items.length === 0
+      ? '<p class="empty-note">Aún no hay objetos en el inventario.</p>'
+      : items.map(function(it){
+          var claimers = Object.keys(sel).filter(function(p){ return (sel[p].wanted||[]).indexOf(it.id) !== -1; });
+          var pills = claimers.length === 0
+            ? '<span class="none-pill">Nadie lo ha marcado todavía</span>'
+            : claimers.map(function(p){ return '<span class="pill' + (claimers.length>1?' conflict':'') + '">' + esc(p) + '</span>'; }).join('');
+          return '<div class="result-row">' +
+            '<div class="result-top"><span class="result-name">' + esc(it.name) + '</span></div>' +
+            '<div class="claim-pills">' + pills + '</div>' +
+            (claimers.length>1 ? '<div class="conflict-note">Más de una persona lo quiere — hay que decidir entre ellos.</div>' : '') +
+          '</div>';
+        }).join('');
+
+    return '<div class="screen"><div class="stack-wide">' +
+      '<div class="back-row">' +
+        '<p class="eyebrow" style="margin:0;">Resultados</p>' +
+      '</div>' +
+      '<h1 class="title">Quién quiere qué</h1>' +
+      '<p class="subtitle">Los objetos marcados por más de una persona aparecen resaltados.</p>' +
+      '<div class="panel">' + rows + '</div>' +
+    '</div></div>';
+  }
+
+  // ---------- global nav shim ----------
+  window.__nav = function(route, extra){ navigate(route, extra); };
+
+  function afterRender(){}
+
+  // ---------- boot ----------
+  async function boot(){
+    state.route = 'loading';
+    render();
+    await loadAll();
+    navigate('home');
+  }
+  boot();
+
+})();
+</script>
+</body>
+</html>
