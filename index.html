@@ -161,7 +161,6 @@
 
   .result-row{padding:14px 0;border-bottom:1px solid var(--line);}
   .result-row:last-child{border-bottom:none;}
-  .result-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
   .result-name{font-family:'Fraunces',serif;font-size:17px;font-weight:500;}
   .claim-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
   .pill{
@@ -171,6 +170,28 @@
   .pill.conflict{background:#F3E2DA;color:var(--warn);border-color:#E3B7A3;}
   .conflict-note{font-size:12px;color:var(--warn);margin-top:6px;font-weight:500;}
   .none-pill{font-size:12px;color:var(--ink-soft);font-style:italic;}
+
+  /* ---- results filter & resolution ---- */
+  .results-filter{margin-bottom:18px;}
+  .results-filter select{
+    width:100%;padding:12px 14px;border-radius:8px;border:1px solid var(--line);
+    background:var(--surface);font-family:'Work Sans',sans-serif;font-size:14px;color:var(--ink);
+  }
+  .results-filter select:focus{outline:none;border-color:var(--accent-plum);}
+  .winner-btn{cursor:pointer;transition:background .15s,color .15s,border-color .15s;}
+  .winner-btn:hover{border-color:var(--accent-sage);}
+  .winner-btn.selected{background:var(--accent-sage);color:#fff;border-color:var(--accent-sage);}
+  .result-top{display:flex;justify-content:space-between;align-items:center;gap:12px;}
+  .check-btn{
+    width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:transparent;
+    display:flex;align-items:center;justify-content:center;color:var(--ink-soft);flex-shrink:0;
+  }
+  .check-btn svg{width:14px;height:14px;}
+  .check-btn:hover{border-color:var(--accent-sage);color:var(--accent-sage);}
+  .check-btn.done{background:var(--accent-sage);border-color:var(--accent-sage);color:#fff;}
+  .result-row.done .result-name{text-decoration:line-through;color:var(--ink-soft);}
+  .result-row.done .card-desc,
+  .result-row.done .claim-pills{opacity:0.55;}
 
   /* ---- admin form ---- */
   .field{margin-bottom:16px;}
@@ -292,6 +313,7 @@
   var KEY_CONFIG = 'inventario:config';
   var KEY_ITEMS = 'inventario:items';
   var KEY_SELECTIONS = 'inventario:selecciones';
+  var KEY_RESOLUTIONS = 'inventario:resoluciones';
 
   // ---------- app state ----------
   var state = {
@@ -300,6 +322,8 @@
     config: null,
     items: null,
     selections: null,
+    resolutions: null,
+    resultsFilter: 'todo',
     reviewIndex: 0
   };
 
@@ -345,9 +369,11 @@
     var photos = await Promise.all(items.map(function(it){ return storeGet(photoKey(it.id), null); }));
     items.forEach(function(it, i){ it.photoUrl = photos[i] || ''; });
     var selections = await storeGet(KEY_SELECTIONS, {});
+    var resolutions = await storeGet(KEY_RESOLUTIONS, { winners:{}, doneInPendientes:{}, doneInPersona:{} });
     state.config = config;
     state.items = items;
     state.selections = selections;
+    state.resolutions = resolutions;
   }
 
   var navHistory = [];
@@ -358,6 +384,7 @@
       navHistory.push({ route: state.route, person: state.person, reviewIndex: state.reviewIndex });
     }
     state.route = route;
+    if(route === 'results' && !opts.isBack) state.resultsFilter = 'todo';
     if(extra) Object.assign(state, extra);
     render();
     window.scrollTo(0,0);
@@ -691,22 +718,119 @@
   }
 
   // ---------- RESULTS (everyone / admin) ----------
-  function resultsScreen(){
+  function claimersOf(it, sel){
+    return Object.keys(sel).filter(function(p){ return (sel[p].wanted||[]).indexOf(it.id) !== -1; });
+  }
+
+  function resultsFilterBar(){
+    var cfg = state.config || {};
+    var people = cfg.familyNames || [];
+    var filter = state.resultsFilter || 'todo';
+    var opts = '<option value="todo"' + (filter==='todo'?' selected':'') + '>Todo</option>' +
+      '<option value="pendientes"' + (filter==='pendientes'?' selected':'') + '>Pendientes (en disputa)</option>' +
+      people.map(function(p){
+        var v = 'persona:' + p;
+        return '<option value="' + esc(v) + '"' + (filter===v?' selected':'') + '>' + esc(p) + '</option>';
+      }).join('');
+    return '<div class="results-filter field">' +
+      '<label>Ver</label>' +
+      '<select id="results-filter-select" onchange="window.__setResultsFilter(this.value)">' + opts + '</select>' +
+    '</div>';
+  }
+
+  function resultsTodoView(){
     var items = state.items || [];
     var sel = state.selections || {};
-    var rows = items.length === 0
-      ? '<p class="empty-note">Aún no hay objetos en el inventario.</p>'
-      : items.map(function(it){
-          var claimers = Object.keys(sel).filter(function(p){ return (sel[p].wanted||[]).indexOf(it.id) !== -1; });
-          var pills = claimers.length === 0
-            ? '<span class="none-pill">Nadie lo ha marcado todavía</span>'
-            : claimers.map(function(p){ return '<span class="pill' + (claimers.length>1?' conflict':'') + '">' + esc(p) + '</span>'; }).join('');
-          return '<div class="result-row">' +
-            '<div class="result-top"><span class="result-name">' + esc(it.name) + '</span></div>' +
-            '<div class="claim-pills">' + pills + '</div>' +
-            (claimers.length>1 ? '<div class="conflict-note">Más de una persona lo quiere — hay que decidir entre ellos.</div>' : '') +
-          '</div>';
-        }).join('');
+    if(items.length === 0) return '<p class="empty-note">Aún no hay objetos en el inventario.</p>';
+    return items.map(function(it){
+      var claimers = claimersOf(it, sel);
+      var pills = claimers.length === 0
+        ? '<span class="none-pill">Nadie lo ha marcado todavía</span>'
+        : claimers.map(function(p){ return '<span class="pill' + (claimers.length>1?' conflict':'') + '">' + esc(p) + '</span>'; }).join('');
+      return '<div class="result-row">' +
+        '<div class="result-top"><span class="result-name">' + esc(it.name) + '</span></div>' +
+        '<div class="claim-pills">' + pills + '</div>' +
+        (claimers.length>1 ? '<div class="conflict-note">Más de una persona lo quiere — hay que decidir entre ellos.</div>' : '') +
+      '</div>';
+    }).join('');
+  }
+
+  function checkBtn(done, onclick){
+    return '<button class="check-btn' + (done?' done':'') + '" title="' + (done?'Marcar como pendiente':'Marcar como resuelto') + '" onclick="' + onclick + '">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 12l5 5L20 6"/></svg>' +
+    '</button>';
+  }
+
+  function resultsPendientesView(){
+    var items = state.items || [];
+    var sel = state.selections || {};
+    var res = state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} };
+    var disputed = items.filter(function(it){ return claimersOf(it, sel).length > 1; });
+    if(disputed.length === 0) return '<p class="empty-note">No hay objetos en disputa por ahora.</p>';
+
+    disputed.sort(function(a,b){
+      var da = res.doneInPendientes[a.id] ? 1 : 0;
+      var db = res.doneInPendientes[b.id] ? 1 : 0;
+      return da - db;
+    });
+
+    return disputed.map(function(it){
+      var claimers = claimersOf(it, sel);
+      var winner = res.winners[it.id];
+      var done = !!res.doneInPendientes[it.id];
+      var pills = claimers.map(function(p){
+        var selected = winner === p;
+        return '<button class="pill winner-btn' + (selected?' selected':'') + '" onclick="window.__setWinner(\'' + it.id + '\',\'' + esc(p).replace(/'/g,"\\'") + '\')">' + esc(p) + '</button>';
+      }).join('');
+      return '<div class="result-row' + (done?' done':'') + '">' +
+        '<div class="result-top">' +
+          '<span class="result-name">' + esc(it.name) + '</span>' +
+          checkBtn(done, "window.__toggleDonePendiente('" + it.id + "')") +
+        '</div>' +
+        (it.desc ? '<p class="card-desc">' + esc(it.desc) + '</p>' : '') +
+        '<div class="claim-pills">' + pills + '</div>' +
+        (winner ? '<div class="conflict-note" style="color:var(--accent-sage-dark);">Se lo queda ' + esc(winner) + '</div>'
+                : '<div class="conflict-note">Más de una persona lo quiere — elige quién se lo queda.</div>') +
+      '</div>';
+    }).join('');
+  }
+
+  function resultsPersonaView(person){
+    var items = state.items || [];
+    var sel = state.selections || {};
+    var res = state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} };
+    var doneMap = res.doneInPersona[person] || {};
+    var chosen = items.filter(function(it){ return (sel[person] && (sel[person].wanted||[]).indexOf(it.id) !== -1); });
+    if(chosen.length === 0) return '<p class="empty-note">' + esc(person) + ' todavía no ha elegido ningún objeto.</p>';
+
+    chosen.sort(function(a,b){
+      var da = doneMap[a.id] ? 1 : 0;
+      var db = doneMap[b.id] ? 1 : 0;
+      return da - db;
+    });
+
+    return chosen.map(function(it){
+      var done = !!doneMap[it.id];
+      return '<div class="result-row' + (done?' done':'') + '">' +
+        '<div class="result-top">' +
+          '<span class="result-name">' + esc(it.name) + '</span>' +
+          checkBtn(done, "window.__toggleDonePersona('" + esc(person).replace(/'/g,"\\'") + "','" + it.id + "')") +
+        '</div>' +
+        (it.desc ? '<p class="card-desc">' + esc(it.desc) + '</p>' : '') +
+      '</div>';
+    }).join('');
+  }
+
+  function resultsScreen(){
+    var filter = state.resultsFilter || 'todo';
+    var body;
+    if(filter === 'pendientes'){
+      body = resultsPendientesView();
+    } else if(filter.indexOf('persona:') === 0){
+      body = resultsPersonaView(filter.slice(8));
+    } else {
+      body = resultsTodoView();
+    }
 
     return '<div class="screen"><div class="stack-wide">' +
       '<div class="back-row">' +
@@ -714,9 +838,48 @@
       '</div>' +
       '<h1 class="title">Quién quiere qué</h1>' +
       '<p class="subtitle">Los objetos marcados por más de una persona aparecen resaltados.</p>' +
-      '<div class="panel">' + rows + '</div>' +
+      resultsFilterBar() +
+      '<div class="panel">' + body + '</div>' +
     '</div></div>';
   }
+
+  window.__setResultsFilter = function(value){
+    state.resultsFilter = value;
+    render();
+  };
+
+  window.__setWinner = async function(itemId, person){
+    var res = JSON.parse(JSON.stringify(state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} }));
+    if(res.winners[itemId] === person){
+      delete res.winners[itemId];
+    } else {
+      res.winners[itemId] = person;
+      res.doneInPendientes[itemId] = true;
+    }
+    state.resolutions = res;
+    render();
+    var ok = await storeSet(KEY_RESOLUTIONS, res);
+    if(!ok) showToast('No se guardó el cambio, revisa tu conexión.');
+  };
+
+  window.__toggleDonePendiente = async function(itemId){
+    var res = JSON.parse(JSON.stringify(state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} }));
+    res.doneInPendientes[itemId] = !res.doneInPendientes[itemId];
+    state.resolutions = res;
+    render();
+    var ok = await storeSet(KEY_RESOLUTIONS, res);
+    if(!ok) showToast('No se guardó el cambio, revisa tu conexión.');
+  };
+
+  window.__toggleDonePersona = async function(person, itemId){
+    var res = JSON.parse(JSON.stringify(state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} }));
+    if(!res.doneInPersona[person]) res.doneInPersona[person] = {};
+    res.doneInPersona[person][itemId] = !res.doneInPersona[person][itemId];
+    state.resolutions = res;
+    render();
+    var ok = await storeSet(KEY_RESOLUTIONS, res);
+    if(!ok) showToast('No se guardó el cambio, revisa tu conexión.');
+  };
 
   // ---------- global nav shim ----------
   window.__nav = function(route, extra){ navigate(route, extra); };
