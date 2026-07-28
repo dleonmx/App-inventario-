@@ -336,6 +336,7 @@
     resultsFilter: 'todo',
     resultsExpanded: {},
     adminTab: 'general',
+    adminNameDraft: null,
     reviewIndex: 0
   };
 
@@ -454,9 +455,14 @@
   }
 
   // ---------- HOME ----------
+  function validFamilyNames(cfg){
+    return ((cfg && cfg.familyNames) || []).filter(function(n){ return n && n.trim(); });
+  }
+
   function homeScreen(){
     var cfg = state.config;
-    if(!cfg || !cfg.familyNames || cfg.familyNames.length === 0){
+    var validNames = validFamilyNames(cfg);
+    if(!cfg || validNames.length === 0){
       return '<div class="screen"><div class="stack">' +
         '<p class="eyebrow">Antes de empezar</p>' +
         '<h1 class="title">Este inventario aún no está listo</h1>' +
@@ -464,7 +470,7 @@
         '<button class="btn btn-primary" onclick="window.__nav(\'admin\')">Ir a organizar el inventario</button>' +
       '</div></div>';
     }
-    var buttons = cfg.familyNames.map(function(n){
+    var buttons = validNames.map(function(n){
       return '<button class="person-btn" onclick="window.__selectPerson(\'' + esc(n).replace(/'/g,"\\'") + '\')">' +
         '<span class="avatar">' + esc(initials(n)) + '</span>' + esc(n) +
       '</button>';
@@ -498,10 +504,17 @@
   };
 
   // ---------- ADMIN ----------
+  function getNameSlots(cfg){
+    if(Array.isArray(state.adminNameDraft)) return state.adminNameDraft;
+    var base = validFamilyNames(cfg).slice();
+    if(base.length < 10) base.push('');
+    state.adminNameDraft = base;
+    return base;
+  }
+
   function adminScreen(){
     var cfg = state.config || { title:'', subtitle:'', familyNames:[] };
-    var names = cfg.familyNames && cfg.familyNames.length ? cfg.familyNames : ['','','','','','','','','',''];
-    while(names.length < 10) names.push('');
+    var names = getNameSlots(cfg);
 
     var itemsHtml = (!state.items || state.items.length === 0)
       ? '<p class="empty-note">Todavía no has agregado ningún objeto.</p>'
@@ -529,6 +542,7 @@
           '<div class="name-grid">' +
             names.map(function(n,i){ return '<input class="fam-name" data-idx="'+i+'" placeholder="Nombre ' + (i+1) + '" value="' + esc(n) + '">'; }).join('') +
           '</div>' +
+          (names.length < 10 ? '<button type="button" class="btn btn-outline" style="margin-top:10px;" onclick="window.__addNameSlot()">+ Agregar otro nombre</button>' : '') +
         '</div>' +
         '<button class="btn btn-primary" onclick="window.__saveConfig()">Guardar datos generales</button>' +
       '</div>';
@@ -570,6 +584,14 @@
     render();
   };
 
+  window.__addNameSlot = function(){
+    var inputs = document.querySelectorAll('.fam-name');
+    var current = Array.prototype.map.call(inputs, function(inp){ return inp.value; });
+    if(current.length < 10) current.push('');
+    state.adminNameDraft = current;
+    render();
+  };
+
   window.__saveConfig = async function(){
     var title = document.getElementById('f-title').value.trim();
     var subtitle = document.getElementById('f-subtitle').value.trim();
@@ -582,7 +604,7 @@
     }
     var cfg = { title: title || 'Inventario del hogar', subtitle: subtitle, familyNames: familyNames };
     var ok = await storeSet(KEY_CONFIG, cfg);
-    if(ok){ state.config = cfg; showToast('Datos guardados.'); render(); }
+    if(ok){ state.config = cfg; state.adminNameDraft = null; showToast('Datos guardados.'); render(); }
   };
 
   window.__onPhotoSelected = async function(input){
@@ -750,7 +772,7 @@
 
   function resultsFilterBar(){
     var cfg = state.config || {};
-    var people = cfg.familyNames || [];
+    var people = validFamilyNames(cfg);
     var filter = state.resultsFilter || 'todo';
     var opts = '<option value="todo"' + (filter==='todo'?' selected':'') + '>Todo</option>' +
       '<option value="pendientes"' + (filter==='pendientes'?' selected':'') + '>Pendientes (en disputa)</option>' +
