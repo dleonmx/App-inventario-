@@ -233,6 +233,11 @@
   .icon-btn:hover{border-color:var(--warn);color:var(--warn);}
   .empty-note{color:var(--ink-soft);font-size:14px;text-align:center;padding:20px 0;}
 
+  .tab-bar{display:flex;gap:8px;margin-bottom:20px;}
+  .tab-btn{flex:1;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);
+    color:var(--ink-soft);font-size:14px;font-weight:500;text-align:center;}
+  .tab-btn.active{background:var(--accent-plum);color:#fff;border-color:var(--accent-plum);}
+
   .name-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   @media (max-width:420px){.name-grid{grid-template-columns:1fr;}}
 
@@ -330,6 +335,7 @@
     resolutions: null,
     resultsFilter: 'todo',
     resultsExpanded: {},
+    adminTab: 'general',
     reviewIndex: 0
   };
 
@@ -511,13 +517,9 @@
           '</div>';
         }).join('');
 
-    return '<div class="screen"><div class="stack-wide">' +
-      '<div class="back-row">' +
-        '<p class="eyebrow" style="margin:0;">Organizar</p>' +
-      '</div>' +
-      '<h1 class="title">Configura el inventario</h1>' +
+    var tab = state.adminTab || 'general';
 
-      '<div class="panel">' +
+    var generalPanel = '<div class="panel">' +
         '<h2>Datos generales</h2>' +
         '<div class="field"><label>Título del inventario</label>' +
           '<input id="f-title" placeholder="Ej. Inventario de la casa de mamá" value="' + esc(cfg.title || '') + '"></div>' +
@@ -529,9 +531,9 @@
           '</div>' +
         '</div>' +
         '<button class="btn btn-primary" onclick="window.__saveConfig()">Guardar datos generales</button>' +
-      '</div>' +
+      '</div>';
 
-      '<div class="panel">' +
+    var itemsPanel = '<div class="panel">' +
         '<h2>Agregar un objeto</h2>' +
         '<div class="field"><label>Nombre del objeto</label><input id="f-item-name" placeholder="Ej. Reloj de pared de madera"></div>' +
         '<div class="field"><label>Descripción</label><textarea id="f-item-desc" placeholder="Ej. Estaba en la sala, marca Junghans, funciona bien"></textarea></div>' +
@@ -544,11 +546,29 @@
       '</div>' +
 
       '<p class="section-title">Objetos agregados (' + (state.items ? state.items.length : 0) + ')</p>' +
-      '<div class="panel">' + itemsHtml + '</div>' +
+      '<div class="panel">' + itemsHtml + '</div>';
+
+    return '<div class="screen"><div class="stack-wide">' +
+      '<div class="back-row">' +
+        '<p class="eyebrow" style="margin:0;">Organizar</p>' +
+      '</div>' +
+      '<h1 class="title">Configura el inventario</h1>' +
+
+      '<div class="tab-bar">' +
+        '<button class="tab-btn' + (tab==='general'?' active':'') + '" onclick="window.__setAdminTab(\'general\')">Datos generales</button>' +
+        '<button class="tab-btn' + (tab==='items'?' active':'') + '" onclick="window.__setAdminTab(\'items\')">Agregar objeto</button>' +
+      '</div>' +
+
+      (tab === 'general' ? generalPanel : itemsPanel) +
 
       '<button class="btn btn-outline" onclick="window.__nav(\'results\')">Ver resultados</button>' +
     '</div></div>';
   }
+
+  window.__setAdminTab = function(tab){
+    state.adminTab = tab;
+    render();
+  };
 
   window.__saveConfig = async function(){
     var title = document.getElementById('f-title').value.trim();
