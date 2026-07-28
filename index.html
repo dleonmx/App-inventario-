@@ -182,6 +182,10 @@
   .winner-btn:hover{border-color:var(--accent-sage);}
   .winner-btn.selected{background:var(--accent-sage);color:#fff;border-color:var(--accent-sage);}
   .result-top{display:flex;justify-content:space-between;align-items:center;gap:12px;}
+  .result-header{display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:0;}
+  .result-chevron{width:14px;height:14px;flex-shrink:0;color:var(--ink-soft);transition:transform .15s;}
+  .result-chevron.expanded{transform:rotate(90deg);}
+  .result-expand{margin-top:10px;}
   .check-btn{
     width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:transparent;
     display:flex;align-items:center;justify-content:center;color:var(--ink-soft);flex-shrink:0;
@@ -191,7 +195,8 @@
   .check-btn.done{background:var(--accent-sage);border-color:var(--accent-sage);color:#fff;}
   .result-row.done .result-name{text-decoration:line-through;color:var(--ink-soft);}
   .result-row.done .card-desc,
-  .result-row.done .claim-pills{opacity:0.55;}
+  .result-row.done .claim-pills,
+  .result-row.done .result-expand{opacity:0.55;}
 
   /* ---- admin form ---- */
   .field{margin-bottom:16px;}
@@ -324,6 +329,7 @@
     selections: null,
     resolutions: null,
     resultsFilter: 'todo',
+    resultsExpanded: {},
     reviewIndex: 0
   };
 
@@ -488,8 +494,8 @@
   // ---------- ADMIN ----------
   function adminScreen(){
     var cfg = state.config || { title:'', subtitle:'', familyNames:[] };
-    var names = cfg.familyNames && cfg.familyNames.length ? cfg.familyNames : ['','','','',''];
-    while(names.length < 5) names.push('');
+    var names = cfg.familyNames && cfg.familyNames.length ? cfg.familyNames : ['','','','','','','','','',''];
+    while(names.length < 10) names.push('');
 
     var itemsHtml = (!state.items || state.items.length === 0)
       ? '<p class="empty-note">Todavía no has agregado ningún objeto.</p>'
@@ -517,7 +523,7 @@
           '<input id="f-title" placeholder="Ej. Inventario de la casa de mamá" value="' + esc(cfg.title || '') + '"></div>' +
         '<div class="field"><label>Mensaje para la familia (opcional)</label>' +
           '<textarea id="f-subtitle" placeholder="Ej. Marca lo que te gustaría conservar, sin prisa.">' + esc(cfg.subtitle || '') + '</textarea></div>' +
-        '<div class="field"><label>Nombres de la familia (hasta 5)</label>' +
+        '<div class="field"><label>Nombres de la familia (hasta 10)</label>' +
           '<div class="name-grid">' +
             names.map(function(n,i){ return '<input class="fam-name" data-idx="'+i+'" placeholder="Nombre ' + (i+1) + '" value="' + esc(n) + '">'; }).join('') +
           '</div>' +
@@ -738,19 +744,40 @@
     '</div>';
   }
 
+  function resultHeader(it, expanded, rightHtml){
+    return '<div class="result-top">' +
+      '<div class="result-header" onclick="window.__toggleExpand(\'' + it.id + '\')">' +
+        '<svg class="result-chevron' + (expanded?' expanded':'') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>' +
+        '<span class="result-name">' + esc(it.name) + '</span>' +
+      '</div>' +
+      (rightHtml || '') +
+    '</div>';
+  }
+
+  function resultExpandBlock(it){
+    if(!it.photoUrl && !it.desc) return '';
+    var photo = it.photoUrl
+      ? '<img class="photo-preview" src="' + esc(it.photoUrl) + '" onerror="this.outerHTML=\'<div class=&quot;card-photo-fallback&quot; style=&quot;max-width:220px;&quot;>No se pudo cargar la foto</div>\'">'
+      : '<div class="card-photo-fallback" style="max-width:220px;">Sin foto</div>';
+    return '<div class="result-expand">' + photo + (it.desc ? '<p class="card-desc">' + esc(it.desc) + '</p>' : '') + '</div>';
+  }
+
   function resultsTodoView(){
     var items = state.items || [];
     var sel = state.selections || {};
+    var expandedMap = state.resultsExpanded || {};
     if(items.length === 0) return '<p class="empty-note">Aún no hay objetos en el inventario.</p>';
     return items.map(function(it){
       var claimers = claimersOf(it, sel);
+      var expanded = !!expandedMap[it.id];
       var pills = claimers.length === 0
         ? '<span class="none-pill">Nadie lo ha marcado todavía</span>'
         : claimers.map(function(p){ return '<span class="pill' + (claimers.length>1?' conflict':'') + '">' + esc(p) + '</span>'; }).join('');
       return '<div class="result-row">' +
-        '<div class="result-top"><span class="result-name">' + esc(it.name) + '</span></div>' +
+        resultHeader(it, expanded) +
         '<div class="claim-pills">' + pills + '</div>' +
         (claimers.length>1 ? '<div class="conflict-note">Más de una persona lo quiere — hay que decidir entre ellos.</div>' : '') +
+        (expanded ? resultExpandBlock(it) : '') +
       '</div>';
     }).join('');
   }
@@ -765,6 +792,7 @@
     var items = state.items || [];
     var sel = state.selections || {};
     var res = state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} };
+    var expandedMap = state.resultsExpanded || {};
     var disputed = items.filter(function(it){ return claimersOf(it, sel).length > 1; });
     if(disputed.length === 0) return '<p class="empty-note">No hay objetos en disputa por ahora.</p>';
 
@@ -778,19 +806,17 @@
       var claimers = claimersOf(it, sel);
       var winner = res.winners[it.id];
       var done = !!res.doneInPendientes[it.id];
+      var expanded = !!expandedMap[it.id];
       var pills = claimers.map(function(p){
         var selected = winner === p;
         return '<button class="pill winner-btn' + (selected?' selected':'') + '" onclick="window.__setWinner(\'' + it.id + '\',\'' + esc(p).replace(/'/g,"\\'") + '\')">' + esc(p) + '</button>';
       }).join('');
       return '<div class="result-row' + (done?' done':'') + '">' +
-        '<div class="result-top">' +
-          '<span class="result-name">' + esc(it.name) + '</span>' +
-          checkBtn(done, "window.__toggleDonePendiente('" + it.id + "')") +
-        '</div>' +
-        (it.desc ? '<p class="card-desc">' + esc(it.desc) + '</p>' : '') +
+        resultHeader(it, expanded, checkBtn(done, "window.__toggleDonePendiente('" + it.id + "')")) +
         '<div class="claim-pills">' + pills + '</div>' +
         (winner ? '<div class="conflict-note" style="color:var(--accent-sage-dark);">Se lo queda ' + esc(winner) + '</div>'
                 : '<div class="conflict-note">Más de una persona lo quiere — elige quién se lo queda.</div>') +
+        (expanded ? resultExpandBlock(it) : '') +
       '</div>';
     }).join('');
   }
@@ -799,6 +825,7 @@
     var items = state.items || [];
     var sel = state.selections || {};
     var res = state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} };
+    var expandedMap = state.resultsExpanded || {};
     var doneMap = res.doneInPersona[person] || {};
     var chosen = items.filter(function(it){ return (sel[person] && (sel[person].wanted||[]).indexOf(it.id) !== -1); });
     if(chosen.length === 0) return '<p class="empty-note">' + esc(person) + ' todavía no ha elegido ningún objeto.</p>';
@@ -811,12 +838,10 @@
 
     return chosen.map(function(it){
       var done = !!doneMap[it.id];
+      var expanded = !!expandedMap[it.id];
       return '<div class="result-row' + (done?' done':'') + '">' +
-        '<div class="result-top">' +
-          '<span class="result-name">' + esc(it.name) + '</span>' +
-          checkBtn(done, "window.__toggleDonePersona('" + esc(person).replace(/'/g,"\\'") + "','" + it.id + "')") +
-        '</div>' +
-        (it.desc ? '<p class="card-desc">' + esc(it.desc) + '</p>' : '') +
+        resultHeader(it, expanded, checkBtn(done, "window.__toggleDonePersona('" + esc(person).replace(/'/g,"\\'") + "','" + it.id + "')")) +
+        (expanded ? resultExpandBlock(it) : '') +
       '</div>';
     }).join('');
   }
@@ -845,6 +870,13 @@
 
   window.__setResultsFilter = function(value){
     state.resultsFilter = value;
+    render();
+  };
+
+  window.__toggleExpand = function(itemId){
+    var expanded = Object.assign({}, state.resultsExpanded || {});
+    expanded[itemId] = !expanded[itemId];
+    state.resultsExpanded = expanded;
     render();
   };
 
