@@ -98,6 +98,8 @@
   .btn-ghost:hover{color:var(--ink);}
   .btn-outline-accent{background:var(--surface);border-color:var(--accent-plum);color:var(--accent-plum);font-weight:600;}
   .btn-outline-accent:hover{background:var(--accent-plum);color:#fff;}
+  .btn-danger{background:transparent;border-color:var(--warn);color:var(--warn);}
+  .btn-danger:hover{background:var(--warn);color:#fff;}
   .btn:disabled{opacity:0.4;cursor:not-allowed;}
   .btn svg{width:17px;height:17px;flex-shrink:0;}
 
@@ -280,10 +282,77 @@
   .back-btn svg{width:15px;height:15px;}
   .section-title{font-size:13px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;
     letter-spacing:0.06em;font-family:'IBM Plex Mono',monospace;margin:26px 0 12px;}
+
+  /* fila de acciones en Resultados (exportar) */
+  .results-toolbar{display:flex;gap:10px;margin:0 0 14px;}
+  .results-toolbar .btn{flex:1;padding:12px 16px;font-size:14px;}
+
+  /* zona de riesgo en Organizar */
+  .danger-zone{border:1px solid var(--warn);border-radius:var(--radius);padding:16px;margin-top:26px;
+    background:rgba(180,89,59,0.04);}
+  .danger-zone h3{font-size:14px;font-weight:600;color:var(--warn);margin:0 0 6px;
+    font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:0.06em;}
+  .danger-zone p{font-size:13px;color:var(--ink-soft);margin:0 0 14px;line-height:1.5;}
+
+  /* modales (exportar / confirmar borrado) */
+  .modal-backdrop{
+    position:fixed;inset:0;background:rgba(43,38,32,0.45);z-index:60;
+    display:flex;align-items:center;justify-content:center;padding:20px;
+  }
+  .modal-card{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto;
+    box-shadow:0 18px 40px rgba(43,38,32,0.22);
+  }
+  .modal-card h2{font-family:'Fraunces',serif;font-size:20px;margin:0 0 8px;}
+  .modal-card p{font-size:14px;color:var(--ink-soft);line-height:1.55;margin:0 0 14px;}
+  .modal-card .modal-scope{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);
+    background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:16px;
+  }
+  .modal-actions{display:flex;flex-direction:column;gap:10px;margin-top:4px;}
+  .modal-progress{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink-soft);
+    text-align:center;padding:18px 0;}
+
+  /* ---------- documento imprimible ---------- */
+  #print-root{display:none;}
+  @media print{
+    #root, #toast, .modal-backdrop{display:none !important;}
+    #print-root{display:block !important;}
+    @page{size:A4;margin:14mm;}
+    html,body{background:#fff;color:#000;}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  }
+  .print-doc{font-family:'Work Sans',sans-serif;color:#2B2620;}
+  .print-head{border-bottom:2px solid #2B2620;padding-bottom:8px;margin-bottom:10px;}
+  .print-head h1{font-family:'Fraunces',serif;font-size:20pt;margin:0 0 4px;}
+  .print-head .print-sub{font-size:10pt;color:#4a443c;margin:0 0 6px;line-height:1.4;}
+  .print-head .print-date{font-family:'IBM Plex Mono',monospace;font-size:8.5pt;color:#6B6355;margin:0;}
+  .print-summary{font-family:'IBM Plex Mono',monospace;font-size:8.5pt;color:#4a443c;
+    margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid #bbb;}
+  .print-grid{display:grid;grid-template-columns:1fr 1fr;gap:4mm 6mm;}
+  .print-row{
+    break-inside:avoid;page-break-inside:avoid;
+    display:flex;gap:3mm;align-items:flex-start;
+    border-bottom:1px solid #ddd;padding-bottom:2.5mm;
+  }
+  .print-thumb{width:24mm;height:24mm;object-fit:cover;border:1px solid #ccc;flex-shrink:0;background:#f4f2ed;}
+  .print-thumb-empty{width:24mm;height:24mm;border:1px dashed #ccc;flex-shrink:0;
+    font-size:6.5pt;color:#999;display:flex;align-items:center;justify-content:center;text-align:center;}
+  .print-info{min-width:0;flex:1;}
+  .print-name{font-size:10pt;font-weight:600;line-height:1.25;margin:0 0 2px;}
+  .print-desc{font-size:8pt;color:#5c564c;line-height:1.35;margin:0 0 3px;}
+  .print-status{font-size:8.5pt;font-weight:600;margin:0;}
+  .print-status.keeper{color:#485539;}
+  .print-status.disputed{color:#B4593B;}
+  .print-status.unclaimed{color:#8a8378;font-weight:500;}
+  .print-empty{font-size:10pt;color:#6B6355;}
 </style>
 </head>
 <body>
 <div id="root"></div>
+<!-- Documento imprimible: vive fuera de #root porque render() reescribe root.innerHTML entero. -->
+<div id="print-root"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -334,6 +403,20 @@
       return false;
     }
   }
+  // Borra muchas claves de golpe. Con cientos de fotos, un delete por foto sería lentísimo.
+  async function storeDeleteMany(keys){
+    var ok = true;
+    for(var i = 0; i < keys.length; i += 200){
+      var chunk = keys.slice(i, i + 200);
+      try{
+        var res = await sb.from('inventario_kv').delete().in('key', chunk);
+        if(res.error) throw res.error;
+      }catch(e){
+        ok = false;
+      }
+    }
+    return ok;
+  }
 
   var KEY_CONFIG = 'inventario:config';
   var KEY_ITEMS = 'inventario:items';
@@ -352,7 +435,10 @@
     resultsExpanded: {},
     adminTab: 'general',
     adminNameDraft: null,
-    reviewIndex: 0
+    reviewIndex: 0,
+    exportOpen: false,      // modal de exportación abierto
+    exportBusy: null,       // texto de progreso mientras se preparan las miniaturas
+    confirmWipe: false      // modal de confirmación para vaciar el inventario
   };
 
   function uid(){ return Math.random().toString(36).slice(2,9); }
@@ -389,6 +475,37 @@
       };
       reader.readAsDataURL(file);
     });
+  }
+
+  // Miniaturas para el PDF. Las fotos guardadas pesan ~100 KB cada una; con cientos de objetos
+  // el documento sería inmanejable, así que se rebajan a ~7 KB antes de imprimir.
+  var thumbCache = {};
+
+  function dataUrlToThumb(dataUrl, maxDim, quality){
+    return new Promise(function(resolve){
+      var img = new Image();
+      img.onerror = function(){ resolve(''); };
+      img.onload = function(){
+        try{
+          var w = img.width, h = img.height;
+          var scale = Math.min(1, maxDim / Math.max(w, h));
+          var cw = Math.round(w * scale), ch = Math.round(h * scale);
+          var canvas = document.createElement('canvas');
+          canvas.width = cw; canvas.height = ch;
+          canvas.getContext('2d').drawImage(img, 0, 0, cw, ch);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        }catch(e){ resolve(''); }
+      };
+      img.src = dataUrl;
+    });
+  }
+
+  function formatToday(){
+    try{
+      return new Date().toLocaleDateString('es-MX', { day:'numeric', month:'long', year:'numeric' });
+    }catch(e){
+      return new Date().toLocaleDateString();
+    }
   }
 
   async function loadAll(){
@@ -468,7 +585,7 @@
     } else if(state.route === 'results'){
       html = topbar() + resultsScreen();
     }
-    root.innerHTML = html;
+    root.innerHTML = html + modalsHtml();
     afterRender();
   }
 
@@ -580,7 +697,16 @@
       '</div>' +
 
       '<p class="section-title">Objetos agregados (' + (state.items ? state.items.length : 0) + ')</p>' +
-      '<div class="panel">' + itemsHtml + '</div>';
+      '<div class="panel">' + itemsHtml + '</div>' +
+
+      (state.items && state.items.length > 0
+        ? '<div class="danger-zone">' +
+            '<h3>Zona de riesgo</h3>' +
+            '<p>Borra los ' + state.items.length + ' objetos, sus fotos y todas las decisiones de la familia. ' +
+              'Los nombres y el título se conservan. Conviene exportar la lista antes.</p>' +
+            '<button class="btn btn-danger" onclick="window.__openWipe()">Vaciar inventario</button>' +
+          '</div>'
+        : '');
 
     return '<div class="screen"><div class="stack-wide">' +
       '<div class="back-row">' +
@@ -981,6 +1107,12 @@
       '</div>' +
       '<h1 class="title">Quién quiere qué</h1>' +
       '<p class="subtitle">Los objetos marcados por más de una persona aparecen resaltados.</p>' +
+      '<div class="results-toolbar">' +
+        '<button class="btn btn-outline-accent" onclick="window.__openExport()">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9V3h12v6M6 18H4a1 1 0 01-1-1v-5a1 1 0 011-1h16a1 1 0 011 1v5a1 1 0 01-1 1h-2M6 14h12v7H6v-7z"/></svg>' +
+          'Exportar / Imprimir' +
+        '</button>' +
+      '</div>' +
       resultsFilterBar() +
       '<div class="panel">' + body + '</div>' +
     '</div></div>';
@@ -1020,6 +1152,231 @@
     var ok = await storeSet(KEY_RESOLUTIONS, res);
     if(!ok) showToast('No se guardó el cambio, revisa tu conexión.');
   };
+
+  // ---------- EXPORTAR (vista imprimible -> "Guardar como PDF") ----------
+
+  // Qué objetos entran al documento. En Resultados respeta el filtro activo;
+  // desde cualquier otra pantalla siempre exporta el inventario completo.
+  function exportScope(){
+    var items = state.items || [];
+    var sel = state.selections || {};
+    var res = state.resolutions || { winners:{}, doneInPersona:{} };
+    var filter = state.route === 'results' ? (state.resultsFilter || 'todo') : 'todo';
+
+    if(filter === 'pendientes'){
+      return {
+        label: 'Sólo los objetos en disputa',
+        items: items.filter(function(it){ return claimersOf(it, sel).length > 1; })
+      };
+    }
+    if(filter.indexOf('persona:') === 0){
+      var person = filter.slice(8);
+      return {
+        label: 'Lo que se queda ' + person,
+        items: items.filter(function(it){ return keeperOf(it, sel, res) === person; })
+      };
+    }
+    return { label: 'Todo el inventario', items: items.slice() };
+  }
+
+  function buildPrintDoc(items, sel, res, thumbs, scope){
+    var cfg = state.config || {};
+    var assigned = 0, disputed = 0, unclaimed = 0;
+
+    var rows = items.map(function(it, i){
+      var claimers = claimersOf(it, sel);
+      var keeper = keeperOf(it, sel, res);
+      var status, cls;
+      if(claimers.length === 0){ status = 'Sin pedir'; cls = 'unclaimed'; unclaimed++; }
+      else if(keeper){ status = keeper; cls = 'keeper'; assigned++; }
+      else { status = 'En disputa: ' + claimers.join(', '); cls = 'disputed'; disputed++; }
+
+      var thumbHtml = '';
+      if(thumbs){
+        thumbHtml = thumbs[it.id]
+          ? '<img class="print-thumb" src="' + esc(thumbs[it.id]) + '">'
+          : '<div class="print-thumb-empty">Sin foto</div>';
+      }
+      return '<div class="print-row">' + thumbHtml +
+        '<div class="print-info">' +
+          '<p class="print-name">' + (i+1) + '. ' + esc(it.name) + '</p>' +
+          (it.desc ? '<p class="print-desc">' + esc(it.desc) + '</p>' : '') +
+          '<p class="print-status ' + cls + '">&#9656; ' + esc(status) + '</p>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    var summary = items.length + (items.length === 1 ? ' objeto' : ' objetos') +
+      ' · ' + assigned + (assigned === 1 ? ' asignado' : ' asignados') +
+      ' · ' + disputed + ' en disputa' +
+      ' · ' + unclaimed + ' sin pedir';
+
+    return '<div class="print-doc">' +
+      '<div class="print-head">' +
+        '<h1>' + esc(cfg.title || 'Inventario del hogar') + '</h1>' +
+        (cfg.subtitle ? '<p class="print-sub">' + esc(cfg.subtitle) + '</p>' : '') +
+        '<p class="print-date">' + esc(scope.label) + ' · generado el ' + esc(formatToday()) + '</p>' +
+      '</div>' +
+      '<p class="print-summary">' + esc(summary) + '</p>' +
+      '<div class="print-grid">' + rows + '</div>' +
+    '</div>';
+  }
+
+  // Sin esto Chrome imprime huecos en blanco donde todavía no decodificó las miniaturas.
+  function waitForImages(container){
+    var imgs = Array.prototype.slice.call(container.querySelectorAll('img'));
+    if(imgs.length === 0) return Promise.resolve();
+    return new Promise(function(resolve){
+      var pending = imgs.length, done = false;
+      function finish(){ if(!done){ done = true; resolve(); } }
+      function one(){ pending--; if(pending <= 0) finish(); }
+      imgs.forEach(function(img){
+        if(img.complete){ one(); return; }
+        img.addEventListener('load', one, { once:true });
+        img.addEventListener('error', one, { once:true });
+      });
+      setTimeout(finish, 3000);
+    });
+  }
+
+  function exportModal(){
+    var scope = exportScope();
+    var n = scope.items.length;
+    var body;
+
+    if(state.exportBusy){
+      body = '<div class="modal-progress">' + esc(state.exportBusy) + '</div>';
+    } else if(n === 0){
+      body = '<p>No hay objetos que exportar en esta vista.</p>' +
+        '<div class="modal-actions">' +
+          '<button class="btn btn-outline" onclick="window.__closeExport()">Cerrar</button>' +
+        '</div>';
+    } else {
+      body = '<p>Se abrirá el cuadro de impresión de tu navegador. Ahí elige «Guardar como PDF» para quedarte con el archivo.</p>' +
+        '<div class="modal-scope">' + esc(scope.label) + ' · ' + n + (n === 1 ? ' objeto' : ' objetos') + '</div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn btn-primary" onclick="window.__doExport(true)">Con fotos</button>' +
+          '<button class="btn btn-outline" onclick="window.__doExport(false)">Sin fotos (más ligero)</button>' +
+          '<button class="btn btn-ghost" onclick="window.__closeExport()">Cancelar</button>' +
+        '</div>';
+    }
+
+    return '<div class="modal-backdrop"><div class="modal-card">' +
+      '<h2>Exportar la lista</h2>' + body +
+    '</div></div>';
+  }
+
+  window.__openExport = function(){
+    state.exportOpen = true;
+    state.exportBusy = null;
+    render();
+  };
+
+  window.__closeExport = function(){
+    if(state.exportBusy) return; // no cerrar a media generación
+    state.exportOpen = false;
+    render();
+  };
+
+  window.__doExport = async function(withPhotos){
+    var scope = exportScope();
+    var items = scope.items;
+    if(items.length === 0) return;
+    var sel = state.selections || {};
+    var res = state.resolutions || { winners:{}, doneInPersona:{} };
+
+    var thumbs = null;
+    if(withPhotos){
+      thumbs = {};
+      state.exportBusy = 'Preparando fotos… 0/' + items.length;
+      render();
+      // en serie a propósito: cientos de canvas en paralelo tumban el navegador del celular
+      for(var i = 0; i < items.length; i++){
+        var it = items[i];
+        if(it.photoUrl){
+          if(!thumbCache[it.id]) thumbCache[it.id] = await dataUrlToThumb(it.photoUrl, 160, 0.6);
+          if(thumbCache[it.id]) thumbs[it.id] = thumbCache[it.id];
+        }
+        if(i % 10 === 9 || i === items.length - 1){
+          state.exportBusy = 'Preparando fotos… ' + (i + 1) + '/' + items.length;
+          render();
+          await new Promise(function(r){ setTimeout(r, 0); }); // deja respirar al navegador
+        }
+      }
+    }
+
+    state.exportBusy = 'Abriendo la vista de impresión…';
+    render();
+
+    var printRoot = document.getElementById('print-root');
+    printRoot.innerHTML = buildPrintDoc(items, sel, res, thumbs, scope);
+    await waitForImages(printRoot);
+
+    state.exportBusy = null;
+    state.exportOpen = false;
+    render();
+
+    window.addEventListener('afterprint', function onAfterPrint(){
+      window.removeEventListener('afterprint', onAfterPrint);
+      printRoot.innerHTML = ''; // libera las miniaturas
+    });
+    window.print();
+  };
+
+  // ---------- VACIAR INVENTARIO ----------
+  function wipeModal(){
+    var n = (state.items || []).length;
+    return '<div class="modal-backdrop"><div class="modal-card">' +
+      '<h2>Vaciar el inventario</h2>' +
+      '<p>Vas a borrar <strong>' + n + (n === 1 ? ' objeto' : ' objetos') + '</strong>, sus fotos y todas ' +
+        'las decisiones que ya tomó la familia. Esto no se puede deshacer.</p>' +
+      '<p>Los nombres y el título del inventario se conservan.</p>' +
+      '<div class="modal-actions" style="margin-bottom:18px;">' +
+        '<button class="btn btn-outline-accent" onclick="window.__openExport()">Exportar la lista primero</button>' +
+      '</div>' +
+      '<div class="field"><label>Escribe ELIMINAR para confirmar</label>' +
+        '<input id="wipe-confirm" placeholder="ELIMINAR" autocomplete="off"></div>' +
+      '<div class="modal-actions">' +
+        '<button class="btn btn-danger" onclick="window.__wipeAll()">Vaciar inventario</button>' +
+        '<button class="btn btn-ghost" onclick="window.__closeWipe()">Cancelar</button>' +
+      '</div>' +
+    '</div></div>';
+  }
+
+  window.__openWipe = function(){ state.confirmWipe = true; render(); };
+  window.__closeWipe = function(){ state.confirmWipe = false; render(); };
+
+  window.__wipeAll = async function(){
+    var input = document.getElementById('wipe-confirm');
+    var typed = input ? input.value.trim().toUpperCase() : '';
+    if(typed !== 'ELIMINAR'){ showToast('Escribe ELIMINAR para confirmar.'); return; }
+
+    var ids = (state.items || []).map(function(it){ return it.id; });
+
+    // La lista primero: si algo falla después, no quedan objetos apuntando a fotos ya borradas.
+    var ok = await storeSet(KEY_ITEMS, []);
+    if(!ok) return; // storeSet ya avisó con un toast
+    await storeSet(KEY_SELECTIONS, {});
+    await storeSet(KEY_RESOLUTIONS, { winners:{}, doneInPersona:{} });
+    if(ids.length) await storeDeleteMany(ids.map(photoKey));
+
+    state.items = [];
+    state.selections = {};
+    state.resolutions = { winners:{}, doneInPersona:{} };
+    state.resultsExpanded = {};
+    state.resultsFilter = 'todo';
+    state.reviewIndex = 0;
+    state.confirmWipe = false;
+    pendingPhotoDataUrl = null;
+    thumbCache = {};
+    render();
+    showToast('Inventario vaciado.');
+  };
+
+  // El de exportar va después para quedar encima si ambos están abiertos.
+  function modalsHtml(){
+    return (state.confirmWipe ? wipeModal() : '') + (state.exportOpen ? exportModal() : '');
+  }
 
   // ---------- global nav shim ----------
   window.__nav = function(route, extra){ navigate(route, extra); };
