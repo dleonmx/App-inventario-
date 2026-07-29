@@ -56,12 +56,17 @@
     background:var(--accent-plum);
   }
   .gear{
-    width:34px;height:34px;border-radius:50%;border:1px solid var(--line);
-    background:transparent;display:flex;align-items:center;justify-content:center;
-    color:var(--ink-soft);opacity:0.55;transition:opacity .15s;
+    display:inline-flex;align-items:center;gap:8px;flex-shrink:0;
+    min-height:44px;padding:0 16px;border-radius:999px;
+    border:1px solid var(--accent-plum);background:var(--accent-plum);color:#fff;
+    font-size:14px;font-weight:600;
+    box-shadow:0 2px 6px rgba(122,59,66,0.25);
+    transition:background .15s, transform .1s;
   }
-  .gear:hover{opacity:1;}
-  .gear svg{width:16px;height:16px;}
+  .gear:hover{background:var(--accent-plum-dark);}
+  .gear:active{transform:scale(0.97);}
+  .gear svg{width:18px;height:18px;}
+  @media (max-width:380px){.gear{padding:0 12px;font-size:13px;}}
 
   /* ---- generic layout ---- */
   .screen{flex:1;display:flex;flex-direction:column;align-items:center;padding:24px;}
@@ -91,7 +96,15 @@
   .btn-outline:hover{border-color:var(--ink-soft);}
   .btn-ghost{background:transparent;color:var(--ink-soft);font-size:13px;padding:8px;}
   .btn-ghost:hover{color:var(--ink);}
+  .btn-outline-accent{background:var(--surface);border-color:var(--accent-plum);color:var(--accent-plum);font-weight:600;}
+  .btn-outline-accent:hover{background:var(--accent-plum);color:#fff;}
   .btn:disabled{opacity:0.4;cursor:not-allowed;}
+  .btn svg{width:17px;height:17px;flex-shrink:0;}
+
+  /* separador "o" entre elegir persona y ver resultados */
+  .home-divider{display:flex;align-items:center;gap:12px;margin:20px 0 14px;}
+  .home-divider::before, .home-divider::after{content:'';flex:1;height:1px;background:var(--line);}
+  .home-divider span{font-size:12px;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;}
 
   .person-list{display:flex;flex-direction:column;gap:10px;margin-bottom:6px;}
   .person-btn{
@@ -168,7 +181,9 @@
     color:var(--ink-soft);border:1px solid var(--line);
   }
   .pill.conflict{background:#F3E2DA;color:var(--warn);border-color:#E3B7A3;}
+  .pill.keeper{background:var(--accent-sage);color:#fff;border-color:var(--accent-sage);}
   .conflict-note{font-size:12px;color:var(--warn);margin-top:6px;font-weight:500;}
+  .resolved-note{font-size:12px;color:var(--accent-sage-dark);margin-top:6px;font-weight:500;}
   .none-pill{font-size:12px;color:var(--ink-soft);font-style:italic;}
 
   /* ---- results filter & resolution ---- */
@@ -382,7 +397,9 @@
     var photos = await Promise.all(items.map(function(it){ return storeGet(photoKey(it.id), null); }));
     items.forEach(function(it, i){ it.photoUrl = photos[i] || ''; });
     var selections = await storeGet(KEY_SELECTIONS, {});
-    var resolutions = await storeGet(KEY_RESOLUTIONS, { winners:{}, doneInPendientes:{}, doneInPersona:{} });
+    var resolutions = await storeGet(KEY_RESOLUTIONS, { winners:{}, doneInPersona:{} });
+    if(!resolutions.winners) resolutions.winners = {};
+    if(!resolutions.doneInPersona) resolutions.doneInPersona = {};
     state.config = config;
     state.items = items;
     state.selections = selections;
@@ -426,8 +443,9 @@
             (state.config && state.config.title ? esc(state.config.title) : 'Inventario') +
           '</a>' +
         '</div>' +
-        (showGear ? '<button class="gear" title="Organizar" onclick="window.__nav(\'admin\')">' +
+        (showGear ? '<button class="gear" title="Ajustes" aria-label="Ajustes" onclick="window.__nav(\'admin\')">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009.1 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9.1a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>' +
+          '<span>Ajustes</span>' +
         '</button>' : '<span style="width:34px;"></span>') +
       '</div>';
   }
@@ -466,8 +484,8 @@
       return '<div class="screen"><div class="stack">' +
         '<p class="eyebrow">Antes de empezar</p>' +
         '<h1 class="title">Este inventario aún no está listo</h1>' +
-        '<p class="subtitle">Quien está organizando el inventario todavía no ha agregado los nombres de la familia ni los objetos. Toca el ícono de arriba a la derecha para configurarlo.</p>' +
-        '<button class="btn btn-primary" onclick="window.__nav(\'admin\')">Ir a organizar el inventario</button>' +
+        '<p class="subtitle">Todavía no se han agregado los nombres de la familia ni los objetos. Toca el botón «Ajustes» de arriba a la derecha para configurarlo.</p>' +
+        '<button class="btn btn-primary" onclick="window.__nav(\'admin\')">Ir a Ajustes</button>' +
       '</div></div>';
     }
     var buttons = validNames.map(function(n){
@@ -480,9 +498,11 @@
       '<h1 class="title">' + esc(cfg.title || 'Inventario del hogar') + '</h1>' +
       '<p class="subtitle">' + (cfg.subtitle ? esc(cfg.subtitle) : 'Elige tu nombre para empezar a revisar los objetos y marcar los que te gustaría conservar.') + '</p>' +
       '<div class="person-list">' + buttons + '</div>' +
-      '<div style="text-align:center;margin-top:8px;">' +
-        '<button class="link-btn" onclick="window.__nav(\'results\')">Ver resultados generales</button>' +
-      '</div>' +
+      '<div class="home-divider"><span>o</span></div>' +
+      '<button class="btn btn-outline-accent" onclick="window.__nav(\'results\')">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V11M10 20V4M16 20v-6M2 20h20"/></svg>' +
+        'Ver resultados generales' +
+      '</button>' +
     '</div></div>';
   }
 
@@ -564,7 +584,7 @@
 
     return '<div class="screen"><div class="stack-wide">' +
       '<div class="back-row">' +
-        '<p class="eyebrow" style="margin:0;">Organizar</p>' +
+        '<p class="eyebrow" style="margin:0;">Ajustes</p>' +
       '</div>' +
       '<h1 class="title">Configura el inventario</h1>' +
 
@@ -722,13 +742,21 @@
   function summaryScreen(){
     var person = state.person;
     var sel = (state.selections[person] || { wanted: [] });
+    var allSel = state.selections || {};
+    var res = state.resolutions || { winners:{}, doneInPersona:{} };
     var items = state.items || [];
-    var chosen = items.filter(function(it){ return sel.wanted.indexOf(it.id) !== -1; });
+    var wanted = items.filter(function(it){ return sel.wanted.indexOf(it.id) !== -1; });
     var notChosen = items.filter(function(it){ return sel.wanted.indexOf(it.id) === -1; });
 
-    var conflictItems = chosen.filter(function(it){
-      var claimers = Object.keys(state.selections).filter(function(p){ return (state.selections[p].wanted||[]).indexOf(it.id) !== -1; });
-      return claimers.length > 1;
+    // Lo que marcó se reparte en tres: lo suyo sin discusión, lo que ganó en disputa,
+    // y lo que sigue sin decidirse. Lo que perdió no se muestra.
+    var keeping = [], won = [], pending = [];
+    wanted.forEach(function(it){
+      var disputed = claimersOf(it, allSel).length > 1;
+      var keeper = keeperOf(it, allSel, res);
+      if(!disputed) keeping.push(it);
+      else if(keeper === person) won.push(it);
+      else if(keeper === null) pending.push(it);
     });
 
     function renderList(list, emptyMsg){
@@ -744,20 +772,35 @@
       '<h1 class="title">Terminaste de revisar</h1>' +
       '<p class="subtitle">Gracias por tomarte el tiempo de repasar todo el inventario. Aquí está tu resumen.</p>' +
 
-      '<p class="section-title">Lo que elegiste conservar (' + chosen.length + ')</p>' +
-      '<div class="panel">' + renderList(chosen, 'No marcaste ningún objeto esta vez.') + '</div>' +
+      '<p class="section-title">Lo que te quedas (' + keeping.length + ')</p>' +
+      '<div class="panel">' + renderList(keeping, wanted.length > 0
+        ? 'Todo lo que marcaste lo quiere alguien más también.'
+        : 'No marcaste ningún objeto esta vez.') + '</div>' +
 
-      '<p class="section-title">Lo que dejaste pasar (' + notChosen.length + ')</p>' +
-      '<div class="panel">' + renderList(notChosen, 'Marcaste todos los objetos.') + '</div>' +
-
-      (conflictItems.length > 0
-        ? '<div class="panel" style="border-color:#E3B7A3;background:#FBF3EF;">' +
-            '<p style="margin:0 0 12px;font-size:14px;font-weight:500;color:var(--warn);">' +
-              'Hay ' + conflictItems.length + ' objeto' + (conflictItems.length > 1 ? 's que también quieren' : ' que también quiere') + ' alguien más.' +
+      (won.length > 0
+        ? '<p class="section-title">Conflictos resueltos (' + won.length + ')</p>' +
+          '<div class="panel" style="border-color:var(--accent-sage);background:#F1F3ED;">' +
+            '<p style="margin:0 0 12px;font-size:14px;font-weight:500;color:var(--accent-sage-dark);">' +
+              '¡Felicidades! Te lo quedaste: ' + won.length + ' objeto' + (won.length > 1 ? 's que alguien más también quería son tuyos.' : ' que alguien más también quería es tuyo.') +
             '</p>' +
+            renderList(won, '') +
+          '</div>'
+        : '') +
+
+      (pending.length > 0
+        ? '<p class="section-title">Todavía en disputa (' + pending.length + ')</p>' +
+          '<div class="panel" style="border-color:#E3B7A3;background:#FBF3EF;">' +
+            '<p style="margin:0 0 12px;font-size:14px;font-weight:500;color:var(--warn);">' +
+              'Hay ' + pending.length + ' objeto' + (pending.length > 1 ? 's que también quieren' : ' que también quiere') + ' alguien más. Falta decidir quién se lo queda.' +
+            '</p>' +
+            renderList(pending, '') +
+            '<div style="height:14px;"></div>' +
             '<button class="btn btn-outline" style="border-color:var(--warn);color:var(--warn);" onclick="window.__nav(\'results\')">Ver quién más lo quiere</button>' +
           '</div>'
         : '') +
+
+      '<p class="section-title">Lo que dejaste pasar (' + notChosen.length + ')</p>' +
+      '<div class="panel">' + renderList(notChosen, 'Marcaste todos los objetos.') + '</div>' +
 
       '<button class="btn btn-outline" onclick="window.__nav(\'review\', {reviewIndex:0})">Repasar de nuevo</button>' +
       '<div style="height:10px;"></div>' +
@@ -768,6 +811,16 @@
   // ---------- RESULTS (everyone / admin) ----------
   function claimersOf(it, sel){
     return Object.keys(sel).filter(function(p){ return (sel[p].wanted||[]).indexOf(it.id) !== -1; });
+  }
+
+  // Quién se queda un objeto, o null si todavía no se decide.
+  // Si el ganador guardado ya desmarcó el objeto, el conflicto vuelve a contar como sin resolver.
+  function keeperOf(it, sel, res){
+    var claimers = claimersOf(it, sel);
+    if(claimers.length === 0) return null;
+    if(claimers.length === 1) return claimers[0];
+    var w = (res && res.winners) ? res.winners[it.id] : null;
+    return (w && claimers.indexOf(w) !== -1) ? w : null;
   }
 
   function resultsFilterBar(){
@@ -807,18 +860,29 @@
   function resultsTodoView(){
     var items = state.items || [];
     var sel = state.selections || {};
+    var res = state.resolutions || { winners:{}, doneInPersona:{} };
     var expandedMap = state.resultsExpanded || {};
     if(items.length === 0) return '<p class="empty-note">Aún no hay objetos en el inventario.</p>';
     return items.map(function(it){
       var claimers = claimersOf(it, sel);
       var expanded = !!expandedMap[it.id];
-      var pills = claimers.length === 0
-        ? '<span class="none-pill">Nadie lo ha marcado todavía</span>'
-        : claimers.map(function(p){ return '<span class="pill' + (claimers.length>1?' conflict':'') + '">' + esc(p) + '</span>'; }).join('');
+      var disputed = claimers.length > 1;
+      var keeper = disputed ? keeperOf(it, sel, res) : null;
+      var pills, note = '';
+      if(claimers.length === 0){
+        pills = '<span class="none-pill">Nadie lo ha marcado todavía</span>';
+      } else if(keeper){
+        // conflicto resuelto: solo se muestra a quien se lo queda
+        pills = '<span class="pill keeper">' + esc(keeper) + '</span>';
+        note = '<div class="resolved-note">Conflicto resuelto — se lo queda ' + esc(keeper) + '.</div>';
+      } else {
+        pills = claimers.map(function(p){ return '<span class="pill' + (disputed?' conflict':'') + '">' + esc(p) + '</span>'; }).join('');
+        if(disputed) note = '<div class="conflict-note">Más de una persona lo quiere — hay que decidir entre ellos.</div>';
+      }
       return '<div class="result-row">' +
         resultHeader(it, expanded) +
         '<div class="claim-pills">' + pills + '</div>' +
-        (claimers.length>1 ? '<div class="conflict-note">Más de una persona lo quiere — hay que decidir entre ellos.</div>' : '') +
+        note +
         (expanded ? resultExpandBlock(it) : '') +
       '</div>';
     }).join('');
@@ -833,30 +897,30 @@
   function resultsPendientesView(){
     var items = state.items || [];
     var sel = state.selections || {};
-    var res = state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} };
+    var res = state.resolutions || { winners:{}, doneInPersona:{} };
     var expandedMap = state.resultsExpanded || {};
     var disputed = items.filter(function(it){ return claimersOf(it, sel).length > 1; });
     if(disputed.length === 0) return '<p class="empty-note">No hay objetos en disputa por ahora.</p>';
 
+    // los que faltan por decidir van primero
     disputed.sort(function(a,b){
-      var da = res.doneInPendientes[a.id] ? 1 : 0;
-      var db = res.doneInPendientes[b.id] ? 1 : 0;
+      var da = keeperOf(a, sel, res) ? 1 : 0;
+      var db = keeperOf(b, sel, res) ? 1 : 0;
       return da - db;
     });
 
     return disputed.map(function(it){
       var claimers = claimersOf(it, sel);
-      var winner = res.winners[it.id];
-      var done = !!res.doneInPendientes[it.id];
+      var winner = keeperOf(it, sel, res);
       var expanded = !!expandedMap[it.id];
       var pills = claimers.map(function(p){
         var selected = winner === p;
         return '<button class="pill winner-btn' + (selected?' selected':'') + '" onclick="window.__setWinner(\'' + it.id + '\',\'' + esc(p).replace(/'/g,"\\'") + '\')">' + esc(p) + '</button>';
       }).join('');
-      return '<div class="result-row' + (done?' done':'') + '">' +
-        resultHeader(it, expanded, checkBtn(done, "window.__toggleDonePendiente('" + it.id + "')")) +
+      return '<div class="result-row' + (winner?' done':'') + '">' +
+        resultHeader(it, expanded) +
         '<div class="claim-pills">' + pills + '</div>' +
-        (winner ? '<div class="conflict-note" style="color:var(--accent-sage-dark);">Se lo queda ' + esc(winner) + '</div>'
+        (winner ? '<div class="resolved-note">Conflicto resuelto — se lo queda ' + esc(winner) + '. Toca su nombre otra vez para deshacer.</div>'
                 : '<div class="conflict-note">Más de una persona lo quiere — elige quién se lo queda.</div>') +
         (expanded ? resultExpandBlock(it) : '') +
       '</div>';
@@ -866,11 +930,18 @@
   function resultsPersonaView(person){
     var items = state.items || [];
     var sel = state.selections || {};
-    var res = state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} };
+    var res = state.resolutions || { winners:{}, doneInPersona:{} };
     var expandedMap = state.resultsExpanded || {};
     var doneMap = res.doneInPersona[person] || {};
-    var chosen = items.filter(function(it){ return (sel[person] && (sel[person].wanted||[]).indexOf(it.id) !== -1); });
-    if(chosen.length === 0) return '<p class="empty-note">' + esc(person) + ' todavía no ha elegido ningún objeto.</p>';
+    var wanted = items.filter(function(it){ return (sel[person] && (sel[person].wanted||[]).indexOf(it.id) !== -1); });
+    if(wanted.length === 0) return '<p class="empty-note">' + esc(person) + ' todavía no ha elegido ningún objeto.</p>';
+
+    // solo lo que de verdad se queda: sin disputa, o disputa que ya ganó
+    var chosen = wanted.filter(function(it){ return keeperOf(it, sel, res) === person; });
+    var oculto = wanted.filter(function(it){ return keeperOf(it, sel, res) === null; }).length;
+    if(chosen.length === 0){
+      return '<p class="empty-note">Todo lo que eligió ' + esc(person) + ' sigue en disputa. Resuélvelo en la vista «Pendientes».</p>';
+    }
 
     chosen.sort(function(a,b){
       var da = doneMap[a.id] ? 1 : 0;
@@ -885,7 +956,12 @@
         resultHeader(it, expanded, checkBtn(done, "window.__toggleDonePersona('" + esc(person).replace(/'/g,"\\'") + "','" + it.id + "')")) +
         (expanded ? resultExpandBlock(it) : '') +
       '</div>';
-    }).join('');
+    }).join('') +
+    (oculto > 0
+      ? '<p class="empty-note" style="padding:14px 0 0;font-size:12px;">' +
+          oculto + (oculto === 1 ? ' objeto en disputa todavía sin resolver no se muestra aquí.' : ' objetos en disputa todavía sin resolver no se muestran aquí.') +
+        '</p>'
+      : '');
   }
 
   function resultsScreen(){
@@ -923,12 +999,11 @@
   };
 
   window.__setWinner = async function(itemId, person){
-    var res = JSON.parse(JSON.stringify(state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} }));
+    var res = JSON.parse(JSON.stringify(state.resolutions || { winners:{}, doneInPersona:{} }));
     if(res.winners[itemId] === person){
       delete res.winners[itemId];
     } else {
       res.winners[itemId] = person;
-      res.doneInPendientes[itemId] = true;
     }
     state.resolutions = res;
     render();
@@ -936,17 +1011,8 @@
     if(!ok) showToast('No se guardó el cambio, revisa tu conexión.');
   };
 
-  window.__toggleDonePendiente = async function(itemId){
-    var res = JSON.parse(JSON.stringify(state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} }));
-    res.doneInPendientes[itemId] = !res.doneInPendientes[itemId];
-    state.resolutions = res;
-    render();
-    var ok = await storeSet(KEY_RESOLUTIONS, res);
-    if(!ok) showToast('No se guardó el cambio, revisa tu conexión.');
-  };
-
   window.__toggleDonePersona = async function(person, itemId){
-    var res = JSON.parse(JSON.stringify(state.resolutions || { winners:{}, doneInPendientes:{}, doneInPersona:{} }));
+    var res = JSON.parse(JSON.stringify(state.resolutions || { winners:{}, doneInPersona:{} }));
     if(!res.doneInPersona[person]) res.doneInPersona[person] = {};
     res.doneInPersona[person][itemId] = !res.doneInPersona[person][itemId];
     state.resolutions = res;
