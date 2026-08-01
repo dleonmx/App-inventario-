@@ -375,22 +375,51 @@
   var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   // ---------- storage helpers ----------
+  // Las versiones "Raw" avisan del error lanzando. Son las que hay que usar antes de
+  // reescribir una fila: si una lectura fallida devolviera el valor por defecto, se
+  // guardaría una fila vacía encima de datos buenos.
+  async function storeGetRaw(key, fallback){
+    var res = await sb.from('inventario_kv').select('value').eq('key', key).maybeSingle();
+    if(res.error) throw res.error;
+    return res.data ? JSON.parse(res.data.value) : fallback;
+  }
+  async function storeSetRaw(key, value){
+    var res = await sb.from('inventario_kv').upsert({ key: key, value: JSON.stringify(value) });
+    if(res.error) throw res.error;
+    return true;
+  }
   async function storeGet(key, fallback){
     try{
-      var res = await sb.from('inventario_kv').select('value').eq('key', key).maybeSingle();
-      if(res.error) throw res.error;
-      return res.data ? JSON.parse(res.data.value) : fallback;
+      return await storeGetRaw(key, fallback);
     }catch(e){
       return fallback;
     }
   }
   async function storeSet(key, value){
     try{
-      var res = await sb.from('inventario_kv').upsert({ key: key, value: JSON.stringify(value) });
+      return await storeSetRaw(key, value);
+    }catch(e){
+      showToast('No se pudo guardar. Intenta de nuevo.');
+      return false;
+    }
+  }
+  // Trae de una sola petición todas las filas cuya clave empieza con el prefijo,
+  // devueltas como { resto_de_la_clave: valor }.
+  async function storeGetPrefix(prefix){
+    var res = await sb.from('inventario_kv').select('key,value').like('key', prefix + '%');
+    if(res.error) throw res.error;
+    var out = {};
+    (res.data || []).forEach(function(row){
+      try{ out[row.key.slice(prefix.length)] = JSON.parse(row.value); }catch(e){}
+    });
+    return out;
+  }
+  async function storeDeletePrefix(prefix){
+    try{
+      var res = await sb.from('inventario_kv').delete().like('key', prefix + '%');
       if(res.error) throw res.error;
       return true;
     }catch(e){
-      showToast('No se pudo guardar. Intenta de nuevo.');
       return false;
     }
   }
@@ -418,10 +447,47 @@
     return ok;
   }
 
+  // Lee la fila como está AHORA en el servidor, le aplica el cambio y la vuelve a guardar.
+  // Sin esto, cada quien reescribe la fila con la copia que bajó al abrir la página y borra
+  // lo que los demás hayan hecho desde entonces. La cola por clave evita además que dos
+  // cambios seguidos del mismo usuario lean el mismo estado viejo y se pisen entre sí.
+  // `mutate` puede devolver undefined para indicar "no hace falta guardar nada".
+  var rowQueues = {};
+  function updateRow(key, fallback, mutate){
+    var prev = rowQueues[key] || Promise.resolve();
+    var run = prev.then(function(){
+      return (async function(){
+        try{
+          var current = await storeGetRaw(key, fallback);
+          var updated = mutate(current);
+          if(updated === undefined) return { ok: true, value: current };
+          await storeSetRaw(key, updated);
+          return { ok: true, value: updated };
+        }catch(e){
+          return { ok: false, value: null };
+        }
+      })();
+    });
+    rowQueues[key] = run;
+    return run;
+  }
+
   var KEY_CONFIG = 'inventario:config';
   var KEY_ITEMS = 'inventario:items';
-  var KEY_SELECTIONS = 'inventario:selecciones';
+  var KEY_SELECTIONS = 'inventario:selecciones'; // heredada: una sola fila para toda la familia
   var KEY_RESOLUTIONS = 'inventario:resoluciones';
+  var SEL_PREFIX = 'inventario:sel:';
+
+  // Cada persona guarda sus decisiones en su propia fila. Es lo que impide que el último
+  // en decidir borre lo que marcaron los demás.
+  function selKey(person){ return SEL_PREFIX + person; }
+
+  function normalizeEntry(entry){
+    return {
+      wanted: (entry && Array.isArray(entry.wanted)) ? entry.wanted : [],
+      reviewed: (entry && Array.isArray(entry.reviewed)) ? entry.reviewed : []
+    };
+  }
 
   // ---------- app state ----------
   var state = {
@@ -508,12 +574,42 @@
     }
   }
 
+  // Trae las filas por persona y, si todavía existe la fila compartida de la versión
+  // anterior, la reparte en filas individuales y la borra. La fila vieja sólo se borra si
+  // todas las nuevas se guardaron bien, para no perder nada a medio camino.
+  async function loadSelections(){
+    var perPerson = {};
+    try{
+      perPerson = await storeGetPrefix(SEL_PREFIX);
+    }catch(e){
+      return {}; // sin conexión: mejor vacío que a medias, y se reintenta en la próxima carga
+    }
+    Object.keys(perPerson).forEach(function(name){ perPerson[name] = normalizeEntry(perPerson[name]); });
+
+    var legacy = await storeGet(KEY_SELECTIONS, null);
+    if(!legacy || typeof legacy !== 'object') return perPerson;
+
+    var pending = Object.keys(legacy).filter(function(name){ return !perPerson[name]; });
+    var migrated = true;
+    for(var i = 0; i < pending.length; i++){
+      var entry = normalizeEntry(legacy[pending[i]]);
+      try{
+        await storeSetRaw(selKey(pending[i]), entry);
+        perPerson[pending[i]] = entry;
+      }catch(e){
+        migrated = false;
+      }
+    }
+    if(migrated) await storeDelete(KEY_SELECTIONS);
+    return perPerson;
+  }
+
   async function loadAll(){
     var config = await storeGet(KEY_CONFIG, null);
     var items = await storeGet(KEY_ITEMS, []);
     var photos = await Promise.all(items.map(function(it){ return storeGet(photoKey(it.id), null); }));
     items.forEach(function(it, i){ it.photoUrl = photos[i] || ''; });
-    var selections = await storeGet(KEY_SELECTIONS, {});
+    var selections = await loadSelections();
     var resolutions = await storeGet(KEY_RESOLUTIONS, { winners:{}, doneInPersona:{} });
     if(!resolutions.winners) resolutions.winners = {};
     if(!resolutions.doneInPersona) resolutions.doneInPersona = {};
@@ -768,36 +864,56 @@
     }
   };
 
+  // Convierte la lista que acaba de devolver el servidor en objetos de pantalla, reusando
+  // las fotos que ya se tenían y bajando sólo las de objetos que agregó alguien más.
+  async function hydrateItems(list, extraPhotos){
+    var known = {};
+    (state.items || []).forEach(function(it){ known[it.id] = it.photoUrl || ''; });
+    Object.keys(extraPhotos || {}).forEach(function(id){ known[id] = extraPhotos[id]; });
+    var missing = list.filter(function(it){ return known[it.id] === undefined; });
+    if(missing.length){
+      var photos = await Promise.all(missing.map(function(it){ return storeGet(photoKey(it.id), null); }));
+      missing.forEach(function(it, i){ known[it.id] = photos[i] || ''; });
+    }
+    return list.map(function(it){
+      return { id: it.id, name: it.name, desc: it.desc, photoUrl: known[it.id] || '' };
+    });
+  }
+
   window.__addItem = async function(){
     var name = document.getElementById('f-item-name').value.trim();
     var desc = document.getElementById('f-item-desc').value.trim();
     if(!name){ showToast('Ponle un nombre al objeto.'); return; }
     var id = uid();
     var itemForStorage = { id: id, name: name, desc: desc };
-    var itemsForStorage = (state.items || []).map(function(it){ return { id: it.id, name: it.name, desc: it.desc }; }).concat([itemForStorage]);
-    var ok = await storeSet(KEY_ITEMS, itemsForStorage);
-    if(!ok) return;
+    // Se agrega sobre la lista que hay en el servidor ahora, no sobre la que se bajó al abrir.
+    var saved = await updateRow(KEY_ITEMS, [], function(remote){
+      var list = Array.isArray(remote) ? remote : [];
+      return list.map(function(it){ return { id: it.id, name: it.name, desc: it.desc }; }).concat([itemForStorage]);
+    });
+    if(!saved.ok){ showToast('No se pudo guardar. Intenta de nuevo.'); return; }
     var photoToSave = pendingPhotoDataUrl;
     if(photoToSave){
       var photoOk = await storeSet(photoKey(id), photoToSave);
       if(!photoOk) showToast('El objeto se guardó, pero la foto no. Intenta agregarla de nuevo.');
     }
-    var item = { id: id, name: name, desc: desc, photoUrl: photoToSave || '' };
-    state.items = (state.items || []).concat([item]);
+    var extra = {}; extra[id] = photoToSave || '';
+    state.items = await hydrateItems(saved.value, extra);
     pendingPhotoDataUrl = null;
     showToast('Objeto agregado.');
     render();
   };
 
   window.__deleteItem = async function(id){
-    var items = (state.items || []).filter(function(it){ return it.id !== id; });
-    var itemsForStorage = items.map(function(it){ return { id: it.id, name: it.name, desc: it.desc }; });
-    var ok = await storeSet(KEY_ITEMS, itemsForStorage);
-    if(ok){
-      state.items = items;
-      render();
-      try{ await storeDelete(photoKey(id)); }catch(e){}
-    }
+    var saved = await updateRow(KEY_ITEMS, [], function(remote){
+      var list = Array.isArray(remote) ? remote : [];
+      return list.filter(function(it){ return it.id !== id; })
+                 .map(function(it){ return { id: it.id, name: it.name, desc: it.desc }; });
+    });
+    if(!saved.ok){ showToast('No se pudo borrar. Intenta de nuevo.'); return; }
+    state.items = await hydrateItems(saved.value, {});
+    render();
+    try{ await storeDelete(photoKey(id)); }catch(e){}
   };
 
   // ---------- REVIEW (per person) ----------
@@ -839,15 +955,24 @@
     '</div></div>';
   }
 
+  // Aplica una sola decisión sobre las selecciones de una persona. Se usa dos veces: sobre
+  // la copia local (para que la pantalla avance ya) y sobre la fila recién leída del
+  // servidor (para no borrar lo que esa persona haya marcado desde otro dispositivo).
+  function applyDecision(entry, itemId, wants){
+    var e = normalizeEntry(entry);
+    var wanted = e.wanted.filter(function(id){ return id !== itemId; });
+    if(wants) wanted.push(itemId);
+    var reviewed = e.reviewed.slice();
+    if(reviewed.indexOf(itemId) === -1) reviewed.push(itemId);
+    return { wanted: wanted, reviewed: reviewed };
+  }
+
   window.__decide = async function(wants){
     var items = state.items || [];
     var it = items[state.reviewIndex];
     var person = state.person;
-    var sel = JSON.parse(JSON.stringify(state.selections || {}));
-    if(!sel[person]) sel[person] = { wanted: [], reviewed: [] };
-    if(wants && sel[person].wanted.indexOf(it.id) === -1) sel[person].wanted.push(it.id);
-    if(!wants) sel[person].wanted = sel[person].wanted.filter(function(id){ return id !== it.id; });
-    if(sel[person].reviewed.indexOf(it.id) === -1) sel[person].reviewed.push(it.id);
+    var sel = Object.assign({}, state.selections || {});
+    sel[person] = applyDecision(sel[person], it.id, wants);
 
     state.selections = sel;
     var nextIndex = state.reviewIndex + 1;
@@ -860,8 +985,11 @@
       render();
     }
 
-    var ok = await storeSet(KEY_SELECTIONS, sel);
-    if(!ok){ showToast('No se guardó tu última elección, revisa tu conexión.'); }
+    // Sólo se toca la fila de esta persona, y se parte de lo que hay en el servidor ahora.
+    var saved = await updateRow(selKey(person), { wanted: [], reviewed: [] }, function(remote){
+      return applyDecision(remote, it.id, wants);
+    });
+    if(!saved.ok){ showToast('No se guardó tu última elección, revisa tu conexión.'); }
   };
 
   // ---------- SUMMARY (after finishing review) ----------
@@ -1130,27 +1258,46 @@
     render();
   };
 
+  function normalizeResolutions(res){
+    var r = (res && typeof res === 'object') ? res : {};
+    return {
+      winners: (r.winners && typeof r.winners === 'object') ? Object.assign({}, r.winners) : {},
+      doneInPersona: (r.doneInPersona && typeof r.doneInPersona === 'object') ? JSON.parse(JSON.stringify(r.doneInPersona)) : {}
+    };
+  }
+
+  var EMPTY_RESOLUTIONS = { winners:{}, doneInPersona:{} };
+
   window.__setWinner = async function(itemId, person){
-    var res = JSON.parse(JSON.stringify(state.resolutions || { winners:{}, doneInPersona:{} }));
-    if(res.winners[itemId] === person){
-      delete res.winners[itemId];
-    } else {
-      res.winners[itemId] = person;
-    }
+    var res = normalizeResolutions(state.resolutions);
+    // El botón alterna, pero al servidor se le manda el resultado, no "alterna otra vez":
+    // así dos personas resolviendo conflictos distintos no se deshacen el trabajo.
+    var clearing = res.winners[itemId] === person;
+    if(clearing) delete res.winners[itemId]; else res.winners[itemId] = person;
     state.resolutions = res;
     render();
-    var ok = await storeSet(KEY_RESOLUTIONS, res);
-    if(!ok) showToast('No se guardó el cambio, revisa tu conexión.');
+    var saved = await updateRow(KEY_RESOLUTIONS, EMPTY_RESOLUTIONS, function(remote){
+      var out = normalizeResolutions(remote);
+      if(clearing) delete out.winners[itemId]; else out.winners[itemId] = person;
+      return out;
+    });
+    if(!saved.ok) showToast('No se guardó el cambio, revisa tu conexión.');
   };
 
   window.__toggleDonePersona = async function(person, itemId){
-    var res = JSON.parse(JSON.stringify(state.resolutions || { winners:{}, doneInPersona:{} }));
+    var res = normalizeResolutions(state.resolutions);
     if(!res.doneInPersona[person]) res.doneInPersona[person] = {};
-    res.doneInPersona[person][itemId] = !res.doneInPersona[person][itemId];
+    var value = !res.doneInPersona[person][itemId];
+    res.doneInPersona[person][itemId] = value;
     state.resolutions = res;
     render();
-    var ok = await storeSet(KEY_RESOLUTIONS, res);
-    if(!ok) showToast('No se guardó el cambio, revisa tu conexión.');
+    var saved = await updateRow(KEY_RESOLUTIONS, EMPTY_RESOLUTIONS, function(remote){
+      var out = normalizeResolutions(remote);
+      if(!out.doneInPersona[person]) out.doneInPersona[person] = {};
+      out.doneInPersona[person][itemId] = value;
+      return out;
+    });
+    if(!saved.ok) showToast('No se guardó el cambio, revisa tu conexión.');
   };
 
   // ---------- EXPORTAR (vista imprimible -> "Guardar como PDF") ----------
@@ -1356,7 +1503,8 @@
     // La lista primero: si algo falla después, no quedan objetos apuntando a fotos ya borradas.
     var ok = await storeSet(KEY_ITEMS, []);
     if(!ok) return; // storeSet ya avisó con un toast
-    await storeSet(KEY_SELECTIONS, {});
+    await storeDeletePrefix(SEL_PREFIX);   // una fila por persona
+    await storeDelete(KEY_SELECTIONS);     // y la fila compartida de la versión anterior, si quedara
     await storeSet(KEY_RESOLUTIONS, { winners:{}, doneInPersona:{} });
     if(ids.length) await storeDeleteMany(ids.map(photoKey));
 
